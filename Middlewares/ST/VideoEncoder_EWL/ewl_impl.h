@@ -78,8 +78,9 @@ typedef struct
 #define PTRACE(...)                           \
   do                                        \
   {                                         \
-    printf("%s:%d:", __FILE__, __LINE__); \
+    printf("%s:%d:", __func__, __LINE__); \
     printf(__VA_ARGS__);                  \
+    printf("\r\n");                  \
   } while (0)
 #else
 #define PTRACE(...) /* no trace */

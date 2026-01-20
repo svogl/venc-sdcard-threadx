@@ -127,6 +127,7 @@ UINT VENC_FileX_Init(void)
   if (sd_status != FX_SUCCESS)
   {
     /* USER CODE BEGIN SD open error */
+	  printf("fx_media_open ERROR %d\r\n", sd_status);
     return sd_status;
     /* USER CODE END SD open error */
   }
@@ -141,6 +142,7 @@ UINT VENC_FileX_Init(void)
   }
   else
   {
+	  printf("SD_IsDetected ERROR %d\r\n", sd_status);
     /* Indicate that SD card is not inserted from start */
     BSP_LED_On(LED_RED);
   }
@@ -197,7 +199,7 @@ UINT VENC_FileX_Init(void)
      }
     media_status = MEDIA_OPENED;
   }
-  sd_status = fx_file_delete(&sdio_disk, "encoded.h264");
+  sd_status = fx_file_delete(&sdio_disk, "encoded.mp4");
   if (sd_status != FX_SUCCESS)
   {
     /* Check for an already created status. This is expected on the
@@ -208,7 +210,7 @@ UINT VENC_FileX_Init(void)
     return sd_status;
     }
   }
-  sd_status =  fx_file_create(&sdio_disk, "encoded.h264");
+  sd_status =  fx_file_create(&sdio_disk, "encoded.mp4");
   /* Check the create status.  */
   if (sd_status != FX_SUCCESS)
   {
@@ -216,7 +218,7 @@ UINT VENC_FileX_Init(void)
   }
 
   /* Open the test file.  */
-  sd_status =  fx_file_open(&sdio_disk, &fx_file, "encoded.h264", FX_OPEN_FOR_WRITE);
+  sd_status =  fx_file_open(&sdio_disk, &fx_file, "encoded.mp4", FX_OPEN_FOR_WRITE);
 
   /* Check the file open status.  */
   if (sd_status != FX_SUCCESS)

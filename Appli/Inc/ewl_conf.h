@@ -46,7 +46,7 @@ extern "C" {
 
 #define EWL_SYNC_API EWL_USE_THREADX_SYNC
 
-//#define TRACE_EWL
+#define TRACE_EWL
   
 #define ALIGNMENT_INCR 8UL
 

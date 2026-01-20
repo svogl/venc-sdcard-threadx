@@ -108,9 +108,10 @@
 #define HW_ID       0x48310000
 #define HW_ID_NE    0x6e650000
 
-
+//#define H264ENC_TRACE 1
 /* Tracing macro */
 #ifdef H264ENC_TRACE
+#define H264EncTrace(str) printf("H264 %s\r\n",(str))
 #define APITRACE(str) H264EncTrace(str)
 #define APITRACEPARAM(str, val) \
   { char tmpstr[255]; sprintf(tmpstr, "  %s: %d", str, (int)val); H264EncTrace(tmpstr); }
@@ -787,6 +788,11 @@ H264EncRet H264EncSetRateCtrl(H264EncInst inst,
 
     u32 i, tmp;
 
+    #define H264EncTrace(str) printf("H264 %s\r\n",(str))
+#define APITRACE(str) H264EncTrace(str)
+#define APITRACEPARAM(str, val) \
+  { char tmpstr[255]; sprintf(tmpstr, "  %s: %d", str, (int)val); H264EncTrace(tmpstr); }
+
     APITRACE("H264EncSetRateCtrl#");
     APITRACEPARAM("pictureRc", pRateCtrl->pictureRc);
     APITRACEPARAM("mbRc", pRateCtrl->mbRc);
@@ -981,6 +987,11 @@ H264EncRet H264EncSetRateCtrl(H264EncInst inst,
                 (rc->virtualBuffer.bitRate != prevBitrate));
 
     APITRACE("H264EncSetRateCtrl: OK");
+#undef APITRACE()
+#undef APITRACEPARAM()
+#define APITRACE(str)
+#define APITRACEPARAM(str, val)
+
     return H264ENC_OK;
 }
 

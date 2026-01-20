@@ -26,7 +26,9 @@
 #include "stm32n6570_discovery.h"
 #include "stm32n6570_discovery_sd.h"
 #include "stm32n6570_discovery_lcd.h"
+#include "stm32n6570_discovery_xspi.h"
 #include "stm32n6570_discovery_camera.h"
+#include "stm32_lcd.h"
 #include "tx_api.h"
 #include "app_filex.h"
 
@@ -41,9 +43,9 @@
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 
-#define FRAMERATE 30
+#define FRAMERATE 15
 /* number of frames to film and encode */
-#define VIDEO_FRAME_NB 600
+#define VIDEO_FRAME_NB 100
 #define USE_SD_AS_OUTPUT 1
 
 /* Private macro -------------------------------------------------------------*/
@@ -66,14 +68,27 @@ H264EncConfig cfg= {0};
 uint32_t output_size = 0;
 uint32_t img_addr = 0;
 
+uint32_t cam_frame_counter = 0;
+
 EWLLinearMem_t outbuf;
-static int frame_nb = 0;
+
+// luma 473600
+// chroma 236800
+// 1420800
 
 uint8_t tx_main_heap[4096];
-uint8_t ewl_pool[1440000] __NON_CACHEABLE __attribute__((aligned(8)));
+
+__attribute__ ((section (".psram_bss")))
+__attribute__ ((aligned (8)))
+uint8_t ewl_pool[1640000];
 TX_BYTE_POOL byte_pool;
 TX_THREAD main_thread;
-uint32_t output_buffer[800*480/8] __NON_CACHEABLE __attribute__((aligned(8)));
+
+//__attribute__ ((section (".psram_bss")))
+__attribute__ ((aligned (32)))
+uint32_t output_buffer[800*600/8] __NON_CACHEABLE;
+
+static int frame_nb = 0;
 
 #if USE_SD_AS_OUTPUT
 uint32_t sd_buf1[0x10000] __NON_CACHEABLE;
@@ -104,6 +119,7 @@ void main_thread_func(ULONG arg);
 * @retval err error code. 0 On success.
 */
 int save_stream(uint32_t offset, uint32_t * buf, size_t size){
+	printf("write %d\r\n", size);
 #if USE_SD_AS_OUTPUT
   return (int) VENC_FileX_write((CHAR *) buf, size);
 #else
@@ -214,6 +230,41 @@ void main_thread_func(ULONG arg){
   TRACE_MAIN("sysclk frequency : %d\n", HAL_RCC_GetSysClockFreq() / 1000000);
   TRACE_MAIN("pclk5 frequency  : %d\n", HAL_RCC_GetPCLK5Freq() / 1000000);
 
+
+  { // lcd util stuff
+	  BSP_LCD_LayerConfig_t LayerConfig = {0};
+	  /* Preview layer Init */
+	  LayerConfig.X0          = 0;
+	  LayerConfig.Y0          = 0;
+	  LayerConfig.X1          = LCD_DEFAULT_WIDTH;
+	  LayerConfig.Y1          = LCD_DEFAULT_HEIGHT;
+	  LayerConfig.PixelFormat = LCD_PIXEL_FORMAT_RGB565;
+	  LayerConfig.Address     = (uint32_t) 0x34050000;
+
+//	  BSP_LCD_ConfigLayer(0, LTDC_LAYER_1, &LayerConfig);
+
+//	  LayerConfig.Address = (uint32_t) 0x3413A600; /* External XSPI1 PSRAM */
+
+//	  BSP_LCD_ConfigLayer(0, LTDC_LAYER_2, &LayerConfig);
+
+
+	  UTIL_LCD_SetFuncDriver(&LCD_Driver);
+	  UTIL_LCD_SetLayer(LTDC_LAYER_1);
+	//  UTIL_LCD_Clear(0x00000000);
+	  UTIL_LCD_SetFont(&Font20);
+	  UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+  }
+
+  /*** External RAM and NOR Flash *********************************************/
+  BSP_XSPI_RAM_Init(0);
+  BSP_XSPI_RAM_EnableMemoryMappedMode(0);
+
+//  BSP_XSPI_NOR_Init_t NOR_Init;
+//  NOR_Init.InterfaceMode = BSP_XSPI_NOR_OPI_MODE;
+//  NOR_Init.TransferRate = BSP_XSPI_NOR_DTR_TRANSFER;
+//  BSP_XSPI_NOR_Init(0, &NOR_Init);
+//  BSP_XSPI_NOR_EnableMemoryMappedMode(0);
+
   /* initialize ext flash interface and driver */
 #if USE_SD_AS_OUTPUT
   VENC_FileX_Init();
@@ -223,9 +274,19 @@ void main_thread_func(ULONG arg){
   if(BSP_CAMERA_Init(0, CAMERA_R2592x1944, CAMERA_PF_RAW_RGGB10) != BSP_ERROR_NONE){
     Error_Handler();
   }
+  // 800x480x2 = 0xBB800 == 768.000 --> 0x3410b800
+  //       --> end: 0x341C7000
+  // 800x600x2 = 0xEA600 == 960.000 --> 0x3413A600
+  //       --> end: 0x34224C00 -> check linker script
+  //           size: 0x19B400 == 1684480 bytes == 1645k
+  // RAM END:
+  // Axisram6 start 0x34350000 sz 448kb = 0x70000  --> END = 0x343C0000
+  //
 
-    /* start camera acquisition */
-  if(BSP_CAMERA_DoubleBufferStart(0, (uint8_t *)(0x34050000),(uint8_t *)(0x3410b800), CAMERA_MODE_CONTINUOUS)!= BSP_ERROR_NONE){
+
+
+  /* start camera acquisition */
+  if(BSP_CAMERA_DoubleBufferStart(0, (uint8_t *)(0x34050000),(uint8_t *)(0x3413A600), CAMERA_MODE_CONTINUOUS)!= BSP_ERROR_NONE){
     Error_Handler();
   }
   /* Initialize LCD */
@@ -244,7 +305,7 @@ void main_thread_func(ULONG arg){
   BSP_LED_On(LED2);
 
   /* initialize encoder software for camera feed encoding */
-  encoder_prepare(800,480,output_buffer);
+  encoder_prepare(800,600,output_buffer);
 
   while (frame_nb < VIDEO_FRAME_NB)
   {
@@ -268,11 +329,11 @@ void main_thread_func(ULONG arg){
   while(1);
 }
 
-
 static int encoder_prepare(uint32_t width, uint32_t height, uint32_t * output_buffer)
 {
   H264EncRet ret;
-
+  height /= 16; // round down to macroblock size
+  height *= 16;
   H264EncPreProcessingCfg preproc_cfg = {0};
 
   /* software workaround for Linemult triggering VENC interrupt. Make it happen as little as possible */
@@ -295,6 +356,8 @@ static int encoder_prepare(uint32_t width, uint32_t height, uint32_t * output_bu
   /*See API guide for level depending on resolution and framerate*/
   cfg.level = H264ENC_LEVEL_2_2;
   cfg.svctLevel = 0;
+
+  cfg.level = H264ENC_LEVEL_3_1; // for higher resolution...
 
   /* Output buffer size */
   outbuf.size = cfg.width * cfg.height;
@@ -319,6 +382,25 @@ static int encoder_prepare(uint32_t width, uint32_t height, uint32_t * output_bu
     return -1;
   }
 
+	{ // if rate control
+	  H264EncRateCtrl rateCtrl;
+	  ret = H264EncGetRateCtrl(encoder, &rateCtrl );
+	  if(ret != H264ENC_OK){
+		TRACE_MAIN("error get ratectl data\n");
+		return -1;
+	  }
+	  rateCtrl.pictureRc = 0;
+	  rateCtrl.mbRc = 0;
+	  rateCtrl.gopLen = 8;
+	  rateCtrl.bitPerSecond = 5*1024*1024; // 1M bps
+	  ret = H264EncSetRateCtrl(encoder, &rateCtrl );
+	  if(ret != H264ENC_OK){
+		TRACE_MAIN("error set ratectl data\n");
+		return -1;
+	  }
+	}
+
+
   /*assign buffers to input structure */
   encIn.pOutBuf = output_buffer;
   encIn.busOutBuf = (uint32_t) output_buffer;
@@ -340,7 +422,60 @@ static int encoder_prepare(uint32_t width, uint32_t height, uint32_t * output_bu
   }
   TRACE_MAIN("stream started. saved %d bytes\n", encOut.streamSize);
   output_size+= encOut.streamSize;
+
+  frame_nb=0;
   return 0;
+}
+
+#define N_PRINTABLE_CHARS 64
+char buffer[N_PRINTABLE_CHARS + 1] = { '\0', };
+
+static int print_timer() {
+	if(!img_addr){
+		TRACE_MAIN("Error : NULL image address");
+		return -1;
+	}
+
+	BSP_LCD_SetLayerAddress(0, 0, img_addr);
+
+	snprintf(buffer, sizeof(buffer), "%06u", cam_frame_counter);
+
+	UTIL_LCD_DisplayStringAt(4, 16, buffer, LEFT_MODE);
+
+	int x = cam_frame_counter;
+	int stride = LCD_DEFAULT_WIDTH * 2 /*bpp*/ ;
+	char* line0= img_addr + (4+0)* stride;
+	char* line1= img_addr + (4+1)* stride;
+	char* line2= img_addr + (4+2)* stride;
+	char* line3= img_addr + (4+3)* stride;
+	int xofs=0;
+	while (x) {
+		if (x & 1) {
+			for (int w=0;w<4;w++) {
+				line0[xofs] = 0xff;
+				line0[xofs+1] = 0xff;
+				line1[xofs] = 0xff;
+				line1[xofs+1] = 0xff;
+				line2[xofs] = 0xff;
+				line2[xofs+1] = 0xff;
+				line3[xofs] = 0xff;
+				line3[xofs+1] = 0xff;
+			}
+		} else {
+			for (int w=0;w<4;w++) {
+				line0[xofs] = 0x00;
+				line0[xofs+1] = 0x00;
+				line1[xofs] = 0x00;
+				line1[xofs+1] = 0x00;
+				line2[xofs] = 0x00;
+				line2[xofs+1] = 0x00;
+				line3[xofs] = 0x00;
+				line3[xofs+1] = 0x00;
+			}
+		}
+		xofs+=2;
+		x >>= 1;
+	}
 }
 
 
@@ -350,7 +485,11 @@ static int Encode_frame(){
     TRACE_MAIN("Error : NULL image address");
     return -1;
   }
-  if (!frame_nb)
+  printf("enc %d %d\r\n", frame_nb, cam_frame_counter);
+  print_timer();
+
+
+  if (! (frame_nb & 0x07) || frame_nb ==0 )
   {
     /* if frame is the first : set as intra coded */
     encIn.timeIncrement = 0;
@@ -564,6 +703,7 @@ void BSP_CAMERA_FrameEventCallback(uint32_t instance)
   /* swap buffers and signal new frame*/
   img_addr = DCMIPP->P1STM0AR;
   buf_index_changed = 1;
+  cam_frame_counter++;
   BSP_LCD_SetLayerAddress(0, 0, img_addr);
   BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
 }
@@ -636,7 +776,7 @@ static void MPU_Config(void)
 void EWLPoolChoiceCb(u8 **pool_ptr, size_t *size)
 {
   *pool_ptr = ewl_pool;
-  *size = 1440000;
+  *size = 1640000;
 }
 
 void EWLPoolReleaseCb(u8 **pool_ptr)

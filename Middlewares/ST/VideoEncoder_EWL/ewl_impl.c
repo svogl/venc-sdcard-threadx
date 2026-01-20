@@ -726,12 +726,14 @@ void VENC_IRQHandler(void)
 {
   u32 hw_handshake_status = READ_BIT(VENC_REG(BASE_HEncInstantInput >> 2U), (1U << 29U));
   uint32_t irq_status = VENC_REG(1U);
+//  printf("v %04x\r\n", irq_status);
   if(!hw_handshake_status && (irq_status & ASIC_STATUS_FUSE))
   {
     VENC_REG(1U) = ASIC_STATUS_FUSE | ASIC_IRQ_LINE;
     /* read back the IRQ status to update its value */
     irq_status = VENC_REG(1U);
   }
+//  printf("V %04x\r\n", irq_status);
   /* See if there are other flags than the FUSE status raised */
   if(irq_status != 0U)
   {

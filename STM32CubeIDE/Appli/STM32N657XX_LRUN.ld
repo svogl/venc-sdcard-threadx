@@ -49,8 +49,10 @@ _eDTCM = ORIGIN(DTCM) + LENGTH(DTCM);
 MEMORY
 {
   ROM    (xr)     : ORIGIN = 0x34000400,   LENGTH = 319K
-  RAM    (rw)     : ORIGIN = 0x341C7000,   LENGTH = 2276K
+/*  RAM    (rw)     : ORIGIN = 0x341C7000,   LENGTH = 2376K ORIG 800x480 */ 
+  RAM    (rw)     : ORIGIN = 0x34224C00,   LENGTH = 1645K  
   DTCM   (rw)     : ORIGIN = 0x30000000,   LENGTH = 128K
+  PSRAM (xrw)           : ORIGIN = 0x91000000, LENGTH =  16M
 }
 
 /* Sections */
@@ -211,6 +213,13 @@ SECTIONS
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >DTCM
+
+  .psram_section (NOLOAD):
+  {
+     . = ALIGN(32);
+    *(.psram_bss)
+    . = ALIGN(32);
+  } >PSRAM
 
   /* Remove information from the compiler libraries */
   /DISCARD/ :

@@ -439,9 +439,13 @@ __weak HAL_StatusTypeDef MX_DCMIPP_Init(DCMIPP_HandleTypeDef *hdcmipp)
   DonwsizeConf.HRatio      = 25656;
   DonwsizeConf.VRatio      = 33161;
   DonwsizeConf.HSize       = 800;
-  DonwsizeConf.VSize       = 480;
+  DonwsizeConf.VSize       = 600;
   DonwsizeConf.HDivFactor  = 316;
   DonwsizeConf.VDivFactor  = 253;
+
+  //cf. RM page 1859
+  DonwsizeConf.VRatio      = 25656;
+  DonwsizeConf.VDivFactor  = 316;
 
   if(HAL_DCMIPP_PIPE_SetDownsizeConfig(hdcmipp, DCMIPP_PIPE1, &DonwsizeConf) != HAL_OK)
   {
