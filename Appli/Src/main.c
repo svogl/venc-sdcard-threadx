@@ -81,14 +81,105 @@ uint8_t tx_main_heap[4096];
 __attribute__ ((section (".psram_bss")))
 __attribute__ ((aligned (8)))
 uint8_t ewl_pool[1640000];
+
 TX_BYTE_POOL byte_pool;
 TX_THREAD main_thread;
 
+#define THREAD_STACK_SIZE 4000
+uint8_t write_thread_stack[THREAD_STACK_SIZE];
+TX_THREAD write_thread;
+
 //__attribute__ ((section (".psram_bss")))
-__attribute__ ((aligned (32)))
-uint32_t output_buffer[800*600/8] __NON_CACHEABLE;
+//__attribute__ ((aligned (32)))
+//uint32_t output_buffer[800*600/8];// __NON_CACHEABLE;
 
 static int frame_nb = 0;
+
+//////////////////////////
+//////////////////////////
+////////////////////////// 2 Q or not 2 Q...
+//////////////////////////
+//////////////////////////
+
+#define NUM_BUFS 4
+#define BUF_SIZE (160*1024)
+
+// static memory block that is used for buffers
+//__attribute__ ((section (".psram_bss")))
+__attribute__ ((aligned (8)))
+uint8_t out_buffers[NUM_BUFS][BUF_SIZE] __NON_CACHEABLE;
+
+// pointer to buffer
+uint8_t* tx_q[NUM_BUFS] = {0,};
+// writable size in bytes to transfer:
+int32_t out_buffers_len[NUM_BUFS] = {0, };
+
+struct qentry {
+	int32_t idx; // buffer array index; int8 would be ok, but this will be 32-bit aligned anyway
+	int32_t size;
+	uint8_t* data;
+	struct qentry* next; // points to next or NULL at end.
+};
+
+// pre-allocated list of queue entries; initialized in initq
+struct qentry raw_entries[NUM_BUFS] = {
+		{ 0, -1, out_buffers[0], NULL},
+		{ 1, -1, out_buffers[1], NULL},
+};
+
+// the queues use a dummy element.
+struct qentry freeQhead = { .idx = -1, .next = NULL};
+struct qentry writeQhead = { .idx = -1, .next = NULL};
+
+struct qentry* freeQ = &freeQhead;
+struct qentry* writeQ = &writeQhead;
+
+static int enq(struct qentry* queue, struct qentry* ent);
+
+ int initq() {
+	for (int i=0;i<NUM_BUFS; i++) {
+		raw_entries[i].idx = i;
+		raw_entries[i].size = -1;
+		raw_entries[i].data = out_buffers[i];
+
+		enq(freeQ, &raw_entries[i]);
+	}
+	return 0;
+}
+
+/// dequeue - remove first entry. call in no-irq context to be atomic or guard!
+/// @return entry pointer or NULL if empty
+ struct qentry* deq(struct qentry* queue)
+{
+	if (!queue->next)
+		return NULL;
+	struct qentry* ent = queue->next;
+	queue->next = ent->next;
+
+	if (ent)
+		ent->next = NULL; // sanitize, just in case.
+	return ent;
+}
+/// enqueue an element at the end of the queue.
+ int enq(struct qentry* queue, struct qentry* ent)
+{
+	struct qentry* iter = queue;
+	// go to the end of the q
+	while (iter ->next) {
+		iter  = iter->next;
+	}
+	iter->next = ent;
+	ent->next = NULL; // sanitize, just in case.
+	return 0;
+}
+
+
+//////////////////////////
+//////////////////////////
+//////////////////////////
+//////////////////////////
+//////////////////////////
+
 
 #if USE_SD_AS_OUTPUT
 uint32_t sd_buf1[0x10000] __NON_CACHEABLE;
@@ -100,7 +191,7 @@ size_t SD_index = 0;
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
 static int encoder_prepare(uint32_t width, uint32_t height, uint32_t * output_buffer);
-static int Encode_frame(void);
+static int Encode_frame(struct qentry* ent);
 static int encoder_end(void);
 static void MPU_Config(void);
 
@@ -108,6 +199,7 @@ static void MPU_Config(void);
 static int save_stream(uint32_t offset, uint32_t * buf, size_t size);
 int flush_out_buffer(void);
 void main_thread_func(ULONG arg);
+void write_thread_func(ULONG arg);
 /* Private functions ---------------------------------------------------------*/
 
 
@@ -159,6 +251,28 @@ int main(void)
   /* oscillator and PLL already configured. Configure periph clocks */
   SystemClock_Config();
 
+  /* Check expected frequency */
+  /* UART log */
+#if USE_COM_LOG
+  COM_InitTypeDef COM_Init;
+
+  /* Initialize COM init structure */
+  COM_Init.BaudRate   = 115200;
+  COM_Init.WordLength = COM_WORDLENGTH_8B;
+  COM_Init.StopBits   = COM_STOPBITS_1;
+  COM_Init.Parity     = COM_PARITY_NONE;
+  COM_Init.HwFlowCtl  = COM_HWCONTROL_NONE;
+
+  BSP_COM_Init(COM1, &COM_Init);
+
+  if (BSP_COM_SelectLogPort(COM1) != BSP_ERROR_NONE)
+  {
+    TRACE_MAIN("failed to set up log port\n");
+    Error_Handler();
+  }
+#endif
+  printf("---------------- BOOT\r\n");
+
   tx_kernel_enter();
 }
 
@@ -169,16 +283,52 @@ int main(void)
 */
 void tx_application_define(void *first_unused_memory)
 {
-  void *thread_stack_pointer;
-  tx_byte_pool_create(&byte_pool, "byte pool", tx_main_heap, sizeof(tx_main_heap));
-  tx_byte_allocate(&byte_pool,
-                   &thread_stack_pointer, 4000, TX_NO_WAIT);
-  (void) tx_thread_create(&main_thread,
-              "main_thread",
-              main_thread_func, 0,
-              thread_stack_pointer, 4000,
-              8, 8,
-              TX_NO_TIME_SLICE, TX_AUTO_START);
+	  if (0) {
+		  void *thread_stack_pointer;
+		  tx_byte_pool_create(&byte_pool, "byte pool", tx_main_heap, sizeof(tx_main_heap));
+		  tx_byte_allocate(&byte_pool,
+		                   &thread_stack_pointer, 4000, TX_NO_WAIT);
+		  (void) tx_thread_create(&write_thread,
+		              "write_thread",
+		              write_thread_func, 0,
+					  write_thread_stack, THREAD_STACK_SIZE,
+		              8, 8,
+		              1, TX_AUTO_START);
+
+
+	  }
+	  {
+		  void *thread_stack_pointer;
+		  tx_byte_pool_create(&byte_pool, "byte pool", tx_main_heap, sizeof(tx_main_heap));
+		  tx_byte_allocate(&byte_pool,
+						   &thread_stack_pointer, 4000, TX_NO_WAIT);
+		  (void) tx_thread_create(&main_thread,
+					  "main_thread",
+					  main_thread_func, 0,
+					  thread_stack_pointer, 4000,
+					  8, 8,
+					  1, TX_AUTO_START);
+	  }
+
+}
+
+TX_SEMAPHORE write_q_semaphore;
+void* q_ptr = NULL;
+
+void write_thread_func(ULONG arg){
+	tx_semaphore_create(&write_q_semaphore, "write_q_sem", 1);
+	printf("SEM start\r\n");
+	while (1) {
+		printf("SEM get...\r\n");
+		tx_semaphore_get(&write_q_semaphore, TX_WAIT_FOREVER);
+		printf("SEM got...\r\n");
+
+		tx_thread_sleep(200);
+		// write
+		if (q_ptr) {
+			q_ptr = NULL;
+		}
+	}
 }
 
 void main_thread_func(ULONG arg){
@@ -202,26 +352,6 @@ void main_thread_func(ULONG arg){
   HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_LTDCL1 , RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
   HAL_RIF_RISC_SetSlaveSecureAttributes(RIF_RISC_PERIPH_INDEX_LTDCL2 , RIF_ATTRIBUTE_SEC | RIF_ATTRIBUTE_PRIV);
 
-  /* Check expected frequency */
-  /* UART log */
-#if USE_COM_LOG
-  COM_InitTypeDef COM_Init;
-
-  /* Initialize COM init structure */
-  COM_Init.BaudRate   = 115200;
-  COM_Init.WordLength = COM_WORDLENGTH_8B;
-  COM_Init.StopBits   = COM_STOPBITS_1;
-  COM_Init.Parity     = COM_PARITY_NONE;
-  COM_Init.HwFlowCtl  = COM_HWCONTROL_NONE;
-
-  BSP_COM_Init(COM1, &COM_Init);
-
-  if (BSP_COM_SelectLogPort(COM1) != BSP_ERROR_NONE)
-  {
-    TRACE_MAIN("failed to set up log port\n");
-    Error_Handler();
-  }
-#endif
   /* initialize LEDs to signal processing is ongoing */
   BSP_LED_Init(LED1);
   BSP_LED_Init(LED2);
@@ -265,6 +395,9 @@ void main_thread_func(ULONG arg){
 //  BSP_XSPI_NOR_Init(0, &NOR_Init);
 //  BSP_XSPI_NOR_EnableMemoryMappedMode(0);
 
+  // from here on, psram is available...:
+  initq();
+
   /* initialize ext flash interface and driver */
 #if USE_SD_AS_OUTPUT
   VENC_FileX_Init();
@@ -282,8 +415,6 @@ void main_thread_func(ULONG arg){
   // RAM END:
   // Axisram6 start 0x34350000 sz 448kb = 0x70000  --> END = 0x343C0000
   //
-
-
 
   /* start camera acquisition */
   if(BSP_CAMERA_DoubleBufferStart(0, (uint8_t *)(0x34050000),(uint8_t *)(0x3413A600), CAMERA_MODE_CONTINUOUS)!= BSP_ERROR_NONE){
@@ -305,7 +436,7 @@ void main_thread_func(ULONG arg){
   BSP_LED_On(LED2);
 
   /* initialize encoder software for camera feed encoding */
-  encoder_prepare(800,600,output_buffer);
+  encoder_prepare(800,600,0x3413A600);
 
   while (frame_nb < VIDEO_FRAME_NB)
   {
@@ -313,10 +444,28 @@ void main_thread_func(ULONG arg){
     {
       Error_Handler();
     }
+
     if(buf_index_changed){
       /* new frame available */
       buf_index_changed = 0;
-      Encode_frame();
+
+      auto ent = deq(freeQ);
+      if (!ent) {
+          TRACE_MAIN("CANNOT DEQ %d\n", frame_nb);
+    	  break;
+      }
+
+      int ret = Encode_frame(ent);
+      if (ret < 0) {
+    	  break;
+      }
+      enq(freeQ, ent);
+
+
+//		printf("tx sem ... %d\r\n", sd_tx_semaphore.tx_semaphore_count );
+//	  tx_semaphore_get(&sd_tx_semaphore, TX_NO_WAIT);
+//		printf("... got\r\n");
+		tx_semaphore_put(&write_q_semaphore);
     }
   }
   /* after encoding a certain nb of frames, end program */
@@ -351,7 +500,19 @@ static int encoder_prepare(uint32_t width, uint32_t height, uint32_t * output_bu
   cfg.height = height;
   /* Stream type */
   cfg.streamType = H264ENC_BYTE_STREAM;
+  // do not use the double-buffer for HRD; we're saving to disk & saving memory.
+  cfg.viewMode = H264ENC_BASE_VIEW_SINGLE_BUFFER;
 
+  /** single buffer allocations for 800x592:
+  EWL ALLOC 473600
+  EWL ALLOC 236800
+  EWL ALLOC 236800
+  EWL ALLOC 168
+  EWL ALLOC 48256
+  EWL ALLOC 103600
+  EWL ALLOC 928
+  total:  1100152 == 1.04Mb
+	*/
   /* encoding level*/
   /*See API guide for level depending on resolution and framerate*/
   cfg.level = H264ENC_LEVEL_2_2;
@@ -430,17 +591,15 @@ static int encoder_prepare(uint32_t width, uint32_t height, uint32_t * output_bu
 #define N_PRINTABLE_CHARS 64
 char buffer[N_PRINTABLE_CHARS + 1] = { '\0', };
 
-static int print_timer() {
+static int print_timer(uint8_t* img_addr) {
 	if(!img_addr){
 		TRACE_MAIN("Error : NULL image address");
 		return -1;
 	}
 
-	BSP_LCD_SetLayerAddress(0, 0, img_addr);
-
-	snprintf(buffer, sizeof(buffer), "%06u", cam_frame_counter);
-
-	UTIL_LCD_DisplayStringAt(4, 16, buffer, LEFT_MODE);
+//	BSP_LCD_SetLayerAddress(0, 0, img_addr);
+//	snprintf(buffer, sizeof(buffer), "%06u", cam_frame_counter);
+//	UTIL_LCD_DisplayStringAt(4, 16, buffer, LEFT_MODE);
 
 	int x = cam_frame_counter;
 	int stride = LCD_DEFAULT_WIDTH * 2 /*bpp*/ ;
@@ -479,15 +638,19 @@ static int print_timer() {
 }
 
 
-static int Encode_frame(){
+static int Encode_frame(struct qentry* ent){
   int ret = H264ENC_FRAME_READY;
   if(!img_addr){
     TRACE_MAIN("Error : NULL image address");
     return -1;
   }
-  printf("enc %d %d\r\n", frame_nb, cam_frame_counter);
-  print_timer();
+  printf("enc p %d -> %d %d\r\n", ent->idx, frame_nb, cam_frame_counter);
 
+  print_timer(ent->data);
+
+  encIn.pOutBuf = ent->data;
+  encIn.busOutBuf = (uint32_t) ent->data;
+  encIn.outBufSize = BUF_SIZE;
 
   if (! (frame_nb & 0x07) || frame_nb ==0 )
   {
@@ -506,11 +669,13 @@ static int Encode_frame(){
   /* set input buffers to structures */
   encIn.busLuma = img_addr;
   ret = H264EncStrmEncode(encoder, &encIn, &encOut, NULL, NULL, NULL);
+
+  ent->size = encOut.streamSize;
   switch (ret)
   {
   case H264ENC_FRAME_READY:
     /*save stream */
-    if (save_stream(output_size, encIn.pOutBuf,  encOut.streamSize))
+    if (save_stream(output_size, ent->data,  ent->size))
     {
       TRACE_MAIN("error saving stream frame %d\n", frame_nb);
       return -1;
