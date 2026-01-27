@@ -23,6 +23,7 @@
 #include "ewl.h"
 #include "h264encapi.h"
 #include "stm32n6xx_ll_venc.h"
+#include "stm32n6xx_hal_sd.h"
 #include "stm32n6570_discovery.h"
 #include "stm32n6570_discovery_sd.h"
 #include "stm32n6570_discovery_lcd.h"
@@ -45,7 +46,7 @@
 
 #define FRAMERATE 15
 /* number of frames to film and encode */
-#define VIDEO_FRAME_NB 100
+#define VIDEO_FRAME_NB 37
 #define USE_SD_AS_OUTPUT 1
 
 /* Private macro -------------------------------------------------------------*/
@@ -76,16 +77,19 @@ EWLLinearMem_t outbuf;
 // chroma 236800
 // 1420800
 
-uint8_t tx_main_heap[4096];
 
 __attribute__ ((section (".psram_bss")))
 __attribute__ ((aligned (8)))
-uint8_t ewl_pool[1640000];
+uint8_t ewl_pool[1640000];// __NON_CACHEABLE;
 
+
+uint8_t tx_main_heap[4096];
 TX_BYTE_POOL byte_pool;
 TX_THREAD main_thread;
 
 #define THREAD_STACK_SIZE 4000
+TX_BYTE_POOL byte_pool_w;
+uint8_t tx_write_heap[4096];
 uint8_t write_thread_stack[THREAD_STACK_SIZE];
 TX_THREAD write_thread;
 
@@ -160,6 +164,7 @@ static int enq(struct qentry* queue, struct qentry* ent);
 		ent->next = NULL; // sanitize, just in case.
 	return ent;
 }
+
 /// enqueue an element at the end of the queue.
  int enq(struct qentry* queue, struct qentry* ent)
 {
@@ -211,12 +216,16 @@ void write_thread_func(ULONG arg);
 * @retval err error code. 0 On success.
 */
 int save_stream(uint32_t offset, uint32_t * buf, size_t size){
-	printf("write %d\r\n", size);
+	int ret = 0;
+	uint32_t t1 = HAL_GetTick();
 #if USE_SD_AS_OUTPUT
-  return (int) VENC_FileX_write((CHAR *) buf, size);
+  ret = (int) VENC_FileX_write((CHAR *) buf, size);
 #else
   return 0;
 #endif
+	uint32_t t2 = HAL_GetTick();
+	printf("write %d %d %d\r\n", ret, size, (t2-t1));
+	return ret;
 }
 
 int flush_out_buffer(void){
@@ -283,19 +292,20 @@ int main(void)
 */
 void tx_application_define(void *first_unused_memory)
 {
-	  if (0) {
+	  if (1) {
 		  void *thread_stack_pointer;
-		  tx_byte_pool_create(&byte_pool, "byte pool", tx_main_heap, sizeof(tx_main_heap));
-		  tx_byte_allocate(&byte_pool,
+		  tx_byte_pool_create(&byte_pool_w, "byte pool w", tx_write_heap, sizeof(tx_write_heap));
+		  tx_byte_allocate(&byte_pool_w,
 		                   &thread_stack_pointer, 4000, TX_NO_WAIT);
 		  (void) tx_thread_create(&write_thread,
 		              "write_thread",
 		              write_thread_func, 0,
 					  write_thread_stack, THREAD_STACK_SIZE,
-		              8, 8,
-		              1, TX_AUTO_START);
-
-
+		              10,  // priority
+					  8,  // preempt threshold
+					  TX_APP_THREAD_TIME_SLICE,
+//					  TX_DONT_START);
+					  TX_AUTO_START);
 	  }
 	  {
 		  void *thread_stack_pointer;
@@ -306,8 +316,11 @@ void tx_application_define(void *first_unused_memory)
 					  "main_thread",
 					  main_thread_func, 0,
 					  thread_stack_pointer, 4000,
-					  8, 8,
-					  1, TX_AUTO_START);
+		              8,  // priority
+					  8,  // preempt threshold
+					  TX_APP_THREAD_TIME_SLICE,
+//					  TX_DONT_START);
+					  TX_AUTO_START);
 	  }
 
 }
@@ -321,7 +334,7 @@ void write_thread_func(ULONG arg){
 	while (1) {
 		printf("SEM get...\r\n");
 		tx_semaphore_get(&write_q_semaphore, TX_WAIT_FOREVER);
-		printf("SEM got...\r\n");
+		printf("SEM got... %d\r\n", write_q_semaphore.tx_semaphore_count);
 
 		tx_thread_sleep(200);
 		// write
@@ -356,20 +369,20 @@ void main_thread_func(ULONG arg){
   BSP_LED_Init(LED1);
   BSP_LED_Init(LED2);
 
-  TRACE_MAIN("CPU frequency    : %d\n", HAL_RCC_GetCpuClockFreq() / 1000000);
-  TRACE_MAIN("sysclk frequency : %d\n", HAL_RCC_GetSysClockFreq() / 1000000);
-  TRACE_MAIN("pclk5 frequency  : %d\n", HAL_RCC_GetPCLK5Freq() / 1000000);
+  TRACE_MAIN("CPU frequency    : %lu\n", HAL_RCC_GetCpuClockFreq() / 1000000);
+  TRACE_MAIN("sysclk frequency : %lu\n", HAL_RCC_GetSysClockFreq() / 1000000);
+  TRACE_MAIN("pclk5 frequency  : %lu\n", HAL_RCC_GetPCLK5Freq() / 1000000);
 
 
   { // lcd util stuff
-	  BSP_LCD_LayerConfig_t LayerConfig = {0};
-	  /* Preview layer Init */
-	  LayerConfig.X0          = 0;
-	  LayerConfig.Y0          = 0;
-	  LayerConfig.X1          = LCD_DEFAULT_WIDTH;
-	  LayerConfig.Y1          = LCD_DEFAULT_HEIGHT;
-	  LayerConfig.PixelFormat = LCD_PIXEL_FORMAT_RGB565;
-	  LayerConfig.Address     = (uint32_t) 0x34050000;
+//	  BSP_LCD_LayerConfig_t LayerConfig = {0};
+//	  /* Preview layer Init */
+//	  LayerConfig.X0          = 0;
+//	  LayerConfig.Y0          = 0;
+//	  LayerConfig.X1          = LCD_DEFAULT_WIDTH;
+//	  LayerConfig.Y1          = LCD_DEFAULT_HEIGHT;
+//	  LayerConfig.PixelFormat = LCD_PIXEL_FORMAT_RGB565;
+//	  LayerConfig.Address     = (uint32_t) 0x34050000;
 
 //	  BSP_LCD_ConfigLayer(0, LTDC_LAYER_1, &LayerConfig);
 
@@ -415,7 +428,12 @@ void main_thread_func(ULONG arg){
   // RAM END:
   // Axisram6 start 0x34350000 sz 448kb = 0x70000  --> END = 0x343C0000
   //
-
+// todo - define bpp and use these instead of the abs. adresses.
+// n.b. in the .ld file, the RAM start must be FRAME_BASE + 2* FRAME_SIZE.
+#define FRAME_BASE 0x34050000
+#define FRAME_SIZE (  LCD_DEFAULT_WIDTH * LCD_DEFAULT_HEIGHT * 2 )
+#define FRAME_0 (FRAME_BASE)
+#define FRAME_1 (FRAME_BASE + (FRAME_SIZE))
   /* start camera acquisition */
   if(BSP_CAMERA_DoubleBufferStart(0, (uint8_t *)(0x34050000),(uint8_t *)(0x3413A600), CAMERA_MODE_CONTINUOUS)!= BSP_ERROR_NONE){
     Error_Handler();
@@ -436,7 +454,7 @@ void main_thread_func(ULONG arg){
   BSP_LED_On(LED2);
 
   /* initialize encoder software for camera feed encoding */
-  encoder_prepare(800,600,0x3413A600);
+  encoder_prepare(800,600,(uint32_t*)0x3413A600);
 
   while (frame_nb < VIDEO_FRAME_NB)
   {
@@ -459,7 +477,10 @@ void main_thread_func(ULONG arg){
       if (ret < 0) {
     	  break;
       }
+      HAL_SD_GetCardState(&hsd1);
       enq(freeQ, ent);
+
+      tx_semaphore_put(&write_q_semaphore);
 
 
 //		printf("tx sem ... %d\r\n", sd_tx_semaphore.tx_semaphore_count );
@@ -579,7 +600,7 @@ static int encoder_prepare(uint32_t width, uint32_t height, uint32_t * output_bu
   if (save_stream(output_size, encIn.pOutBuf,  encOut.streamSize))
   {
     TRACE_MAIN("error saving stream\n");
-    return -1;
+//    return -1;
   }
   TRACE_MAIN("stream started. saved %d bytes\n", encOut.streamSize);
   output_size+= encOut.streamSize;

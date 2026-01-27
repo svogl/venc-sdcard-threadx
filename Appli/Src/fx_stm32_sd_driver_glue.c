@@ -49,6 +49,9 @@ INT fx_stm32_sd_init(UINT instance)
 #endif
 
   /* USER CODE BEGIN POST_FX_SD_INIT */
+//  HAL_SD_ConfigWideBusOperation(&hsd1, SDMMC_BUS_WIDE_4B);
+//  HAL_SD_ConfigSpeedBusOperation(&hsd1, SDMMC_SPEED_MODE_AUTO);
+//  printf("CARD TYPE %d speed %d \r\n", hsd1.SdCard.CardType, hsd1.SdCard.CardSpeed );
 
   /* USER CODE END POST_FX_SD_INIT */
 
@@ -167,11 +170,11 @@ INT fx_stm32_sd_write_blocks(UINT instance, UINT *buffer, UINT start_block, UINT
 void HAL_SD_TxCpltCallback(SD_HandleTypeDef *hsd)
 {
   /* USER CODE BEGIN PRE_TX_CMPLT */
-
+//	printf("ack\r\n");
   /* USER CODE END PRE_TX_CMPLT */
 
+//printf("a %d %d %d\r\n", hsd->State, HAL_SD_GetCardState(hsd) , hsd->TxXferSize);
   tx_semaphore_put(&sd_tx_semaphore);
-
   /* USER CODE BEGIN POST_TX_CMPLT */
 
   /* USER CODE END POST_TX_CMPLT */

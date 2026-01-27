@@ -38,6 +38,8 @@ typedef struct
 extern __IO uint32_t UserButtonPressed;
 extern __IO uint32_t ButtonState;
 
+extern SD_HandleTypeDef hsd1;
+
 /* Exported macros -----------------------------------------------------------*/
 /* Exported functions ------------------------------------------------------- */
 void hexdump(uint8_t * buf, size_t len, char * msg);

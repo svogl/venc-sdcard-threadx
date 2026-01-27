@@ -42,6 +42,8 @@ extern "C" {
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
+#define TX_APP_THREAD_TIME_SLICE                5
+#define TX_APP_THREAD_PRIO                      5
 
 /* USER CODE END EC */
 

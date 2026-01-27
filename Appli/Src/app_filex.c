@@ -65,7 +65,7 @@ CARD_STATUS_CONNECTED           = 77
 TX_THREAD       fx_app_thread;
 
 /* Buffer for FileX FX_MEDIA sector cache. */
-ALIGN_32BYTES (uint32_t fx_sd_media_memory[FX_STM32_SD_DEFAULT_SECTOR_SIZE / sizeof(uint32_t)]);
+ALIGN_32BYTES (uint32_t fx_sd_media_memory[ 600 * FX_STM32_SD_DEFAULT_SECTOR_SIZE / sizeof(uint32_t)]) __NON_CACHEABLE;
 /* Define FileX global data structures.  */
 FX_MEDIA        sdio_disk;
 
@@ -235,7 +235,7 @@ UINT VENC_FileX_Init(void)
 UINT VENC_FileX_write(CHAR * data, LONG size)
 {
   /* Write the given data to the file.  */
-  UINT status =  fx_file_write(&fx_file, data, size);
+  UINT status =  _fx_file_write(&fx_file, data, size);
 
   return status;
 }
