@@ -11,12 +11,17 @@
 
 #include "fx_stm32_sd_driver.h"
 #include "main.h"
+#include "stm32n6570_discovery_sd.h"
 
 TX_SEMAPHORE sd_tx_semaphore;
 TX_SEMAPHORE sd_rx_semaphore;
 
-SD_HandleTypeDef hsd1;
+/* sv: use BSP glue code, not HAL */
+#define FX_STM32_SD_USE_HAL    0
 
+#if (FX_STM32_SD_USE_HAL == 1)
+SD_HandleTypeDef hsd1;
+#endif
 
 /* USER CODE BEGIN 0 */
 
@@ -35,7 +40,9 @@ INT fx_stm32_sd_init(UINT instance)
   UNUSED(instance);
   /* USER CODE END PRE_FX_SD_INIT */
 
-#if (FX_STM32_SD_INIT == 1)
+  printf("FXG INIT SD %d\r\n", instance);
+
+#if (FX_STM32_SD_USE_HAL == 1)
   hsd1.Instance = SDMMC2;
   hsd1.Init.ClockEdge = SDMMC_CLOCK_EDGE_RISING;
   hsd1.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
@@ -46,6 +53,9 @@ INT fx_stm32_sd_init(UINT instance)
   {
     Error_Handler();
   }
+#else
+  printf("FXG INIT SD2 %d\r\n", instance);
+  BSP_SD_Init(instance);
 #endif
 
   /* USER CODE BEGIN POST_FX_SD_INIT */
@@ -70,12 +80,15 @@ INT fx_stm32_sd_deinit(UINT instance)
   /* USER CODE BEGIN PRE_FX_SD_DEINIT */
   UNUSED(instance);
   /* USER CODE END PRE_FX_SD_DEINIT */
-#if (FX_STM32_SD_INIT == 1)
+#if (FX_STM32_SD_USE_HAL == 1)
   if(HAL_SD_DeInit(&hsd1) != HAL_OK)
   {
     ret = 1;
   }
+#else
+  BSP_SD_DeInit(instance);
 #endif
+
   /* USER CODE BEGIN POST_FX_SD_DEINIT */
 
   /* USER CODE END POST_FX_SD_DEINIT */
@@ -96,7 +109,11 @@ INT fx_stm32_sd_get_status(UINT instance)
   UNUSED(instance);
   /* USER CODE END PRE_GET_STATUS */
 
+#if (FX_STM32_SD_USE_HAL == 1)
   if(HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER)
+#else
+  if(BSP_SD_GetCardState(instance) != SD_TRANSFER_OK)
+#endif
   {
     ret = 1;
   }
@@ -123,10 +140,17 @@ INT fx_stm32_sd_read_blocks(UINT instance, UINT *buffer, UINT start_block, UINT 
   UNUSED(instance);
   /* USER CODE END PRE_READ_BLOCKS */
 
+#if (FX_STM32_SD_USE_HAL == 1)
   if(HAL_SD_ReadBlocks_DMA(&hsd1, (uint8_t *)buffer, start_block, total_blocks) != HAL_OK)
   {
     ret = 1;
   }
+#else
+  if (BSP_SD_ReadBlocks_DMA( instance, buffer, start_block, total_blocks)!= BSP_ERROR_NONE)
+  {
+    ret = 1;
+  }
+#endif
 
   /* USER CODE BEGIN POST_READ_BLOCKS */
 
@@ -150,10 +174,17 @@ INT fx_stm32_sd_write_blocks(UINT instance, UINT *buffer, UINT start_block, UINT
   UNUSED(instance);
   /* USER CODE END PRE_WRITE_BLOCKS */
 
+#if (FX_STM32_SD_USE_HAL == 1)
   if(HAL_SD_WriteBlocks_DMA(&hsd1, (uint8_t *)buffer, start_block, total_blocks) != HAL_OK)
   {
     ret = 1;
   }
+#else
+    if (BSP_SD_WriteBlocks_DMA( instance, buffer, start_block, total_blocks)!= BSP_ERROR_NONE)
+    {
+      ret = 1;
+    }
+#endif
 
   /* USER CODE BEGIN POST_WRITE_BLOCKS */
 
@@ -162,9 +193,10 @@ INT fx_stm32_sd_write_blocks(UINT instance, UINT *buffer, UINT start_block, UINT
   return ret;
 }
 
+#if (FX_STM32_SD_USE_HAL == 1)
 /**
 * @brief SD DMA Tx Transfer completed callbacks
-* @param Instance the sd instance
+* @param instance the sd instance
 * @retval None
 */
 void HAL_SD_TxCpltCallback(SD_HandleTypeDef *hsd)
@@ -184,6 +216,23 @@ void HAL_SD_TxCpltCallback(SD_HandleTypeDef *hsd)
   * @param  hsd  SD handle
   * @retval None
   */
+#else
+
+/**
+  * @brief BSP Tx Transfer completed callbacks
+  * @param  instance     SD instance
+  * @retval None
+  */
+__weak void BSP_SD_WriteCpltCallback(uint32_t instance)
+{
+  /* Prevent unused argument(s) compilation warning */
+  UNUSED(instance);
+  tx_semaphore_put(&sd_tx_semaphore);
+}
+#endif
+
+#if (FX_STM32_SD_USE_HAL == 1)
+
 void HAL_SD_MspInit(SD_HandleTypeDef* hsd)
 {
     GPIO_InitTypeDef gpio_init_structure = {0};
@@ -242,14 +291,19 @@ void HAL_SD_MspDeInit(SD_HandleTypeDef* hsd)
     __HAL_RCC_SDMMC2_CLK_DISABLE();
   }
 }
+#endif
 
-void SDMMC2_IRQHandler(void)
-{
-  HAL_SD_IRQHandler(&hsd1);
-}
+//
+//void SDMMC2_IRQHandler(void)
+//{
+//  HAL_SD_IRQHandler(&hsd1);
+//}
+
+
+#if (FX_STM32_SD_USE_HAL == 1)
 /**
 * @brief SD DMA Rx Transfer completed callbacks
-* @param Instance the sd instance
+* @param instance the sd instance
 * @retval None
 */
 void HAL_SD_RxCpltCallback(SD_HandleTypeDef *hsd)
@@ -266,5 +320,22 @@ void HAL_SD_RxCpltCallback(SD_HandleTypeDef *hsd)
 }
 
 /* USER CODE BEGIN 1 */
+#else
+
+/**
+  * @brief BSP Rx Transfer completed callbacks
+  * @param  instance     SD instance
+  * @retval None
+  */
+__weak void BSP_SD_ReadCpltCallback(uint32_t instance)
+{
+  /* Prevent unused argument(s) compilation warning */
+	tx_semaphore_put(&sd_rx_semaphore);
+}
+
+#endif
+
+
+
 
 /* USER CODE END 1 */

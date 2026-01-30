@@ -26,6 +26,7 @@
 /* USER CODE BEGIN Includes */
 #include "main.h"
 #include "stm32n6570_discovery.h"
+#include "stm32n6570_discovery_sd.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -141,6 +142,8 @@ UINT VENC_FileX_Init(void) {
   }
 
   /* USER CODE END MX_FileX_Init */
+//	printf("VENC_INIT SD %d\r\n", 0);
+//	BSP_SD_Init(0);
 
   /* Initialize FileX.  */
   fx_system_initialize();
@@ -162,6 +165,7 @@ UINT VENC_FileX_Init(void) {
 
   /* Check main thread creation */
   if (ret != FX_SUCCESS) {
+	printf("THREAD CREATION FAILED!!!!\r\n");
     return TX_THREAD_ERROR;
   }
 
@@ -212,14 +216,14 @@ void fx_app_thread_func(ULONG thread_input) {
 //        if (last_status == CARD_STATUS_CONNECTED) {
 //          BSP_LED_Off(LED_GREEN);
 //        }
-    	  int sd_det = HAL_GPIO_ReadPin(SD_DETECT_GPIO_Port, SD_DETECT_Pin);
+    	  int sd_det = SD_IsDetected(FX_STM32_SD_INSTANCE);
     	  if (sd_det) {
     	      BSP_LED_On(LED_GREEN);
     	  } else {
     	      BSP_LED_Off(LED_GREEN);
     	  }
 // TODO: enable this block once the sd_det is indicating the right state.
-//    	  printf("sd_det %d\r\n", sd_det);
+    	  printf("sd_det %d\r\n", sd_det);
     	  // state handling:
 //    	  if (state == NO_CARD && sd_det) {
 //    		  r_msg = CARD_STATUS_CHANGED; // notify of card insert event
@@ -329,6 +333,10 @@ static int state_open_card()
   return FX_SUCCESS;
 }
 
+static void state_write_notify(struct FX_FILE_STRUCT *file) {
+	printf("WROTE\r\n");
+}
+
 static int state_open_file(char* fname)
 {
 	UINT sd_status=FX_SUCCESS;
@@ -352,13 +360,17 @@ printf("FOPEN\r\n");
 	}
 
 	/* Open the file.  */
-	sd_status = _fx_file_open(&sdio_disk, &fx_file, fname, FX_OPEN_FOR_WRITE);
+	sd_status = fx_file_open(&sdio_disk, &fx_file, fname, FX_OPEN_FOR_WRITE);
 
 	if (sd_status != FX_SUCCESS) {
 		/* Error opening file, call error handler, complain, something...  */
 		return sd_status;
 	}
 	printf("FOPENED %d\r\n", sd_status);
+
+	fx_file. fx_file_write_notify = state_write_notify;
+
+
 	return sd_status; // success
 }
 
@@ -409,7 +421,7 @@ static int state_write_data()
 
 UINT VENC_FileX_write(CHAR *data, LONG size) {
   /* Write the given data to the file.  */
-  UINT status = fx_file_write(&fx_file, data, size);
+  UINT status = _fx_file_write(&fx_file, data, size);
 
   return status;
 }
@@ -442,6 +454,8 @@ UINT VENC_FileX_close(void) {
  */
 static UINT SD_IsDetected(uint32_t Instance) {
   UINT ret;
+
+  return BSP_SD_IsDetected(Instance) ? HAL_OK : HAL_ERROR;
 
   if (Instance >= 1) {
     ret = HAL_ERROR;

@@ -61,15 +61,17 @@
 /* Private variables ---------------------------------------------------------*/
 
 uint16_t * pipe_buffer[2];
-uint8_t buf_index_changed = 0;
+volatile uint8_t buf_index_changed = 0;
+
 H264EncIn encIn= {0};
 H264EncOut encOut= {0};
 H264EncInst encoder= {0};
 H264EncConfig cfg= {0};
+
 uint32_t output_size = 0;
 uint32_t img_addr = 0;
 
-uint32_t cam_frame_counter = 0;
+volatile uint32_t cam_frame_counter = 0;
 
 EWLLinearMem_t outbuf;
 
