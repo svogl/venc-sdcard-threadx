@@ -38,6 +38,66 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 
+
+
+//////////////////////////
+//////////////////////////
+////////////////////////// 2 Q or not 2 Q... API:
+//////////////////////////
+//////////////////////////
+
+/** queue entry struct. */
+struct qentry {
+	int32_t idx; // buffer array index; int8 would be ok, but this will be 32-bit aligned anyway
+	int32_t size;
+	uint8_t* data;
+	struct qentry* next; // points to next or NULL at end.
+};
+
+/// check if q has data elements
+static inline int qAvailable(const struct qentry* queue) { return queue->next != NULL; };
+
+extern int enq(struct qentry* queue, struct qentry* ent);
+
+/// dequeue - remove first entry. call in no-irq context to be atomic or guard!
+/// @return entry pointer or NULL if empty
+extern struct qentry* deq(struct qentry* queue);
+
+/* available queues: freeQ -> unused buffers, writeQ -> buffers to be written to disk */
+extern struct qentry* freeQ;
+extern struct qentry* writeQ;
+
+/* mutex to guard access to the queues. lock for enq/deq operations */
+extern TX_MUTEX q_mutex;
+
+
+/* Message content*/
+typedef enum {
+	DATA_AVAILABLE = 3, /* queued data... */
+	OPEN_FILE = 5, /* open file */
+	CLOSE_FILE = 7, /* close file, re-open... */
+	CARD_STATUS_CHANGED = 9, /* card pulled or inserted -> detect pin irq*/
+} FXMessageType;
+
+
+typedef enum {
+	NO_CARD = 0,
+	CARD_INSERTED,
+	FILE_OPENED
+} FxThreadState;
+
+extern FxThreadState state;
+
+extern void notify_data_available();
+
+//////////////////////////
+//////////////////////////
+////////////////////////// 2 Q or not 2 Q... /API
+//////////////////////////
+//////////////////////////
+
+
+
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

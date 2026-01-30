@@ -118,12 +118,6 @@ uint8_t* tx_q[NUM_BUFS] = {0,};
 // writable size in bytes to transfer:
 int32_t out_buffers_len[NUM_BUFS] = {0, };
 
-struct qentry {
-	int32_t idx; // buffer array index; int8 would be ok, but this will be 32-bit aligned anyway
-	int32_t size;
-	uint8_t* data;
-	struct qentry* next; // points to next or NULL at end.
-};
 
 // pre-allocated list of queue entries; initialized in initq
 struct qentry raw_entries[NUM_BUFS] = {
@@ -138,9 +132,7 @@ struct qentry writeQhead = { .idx = -1, .next = NULL};
 struct qentry* freeQ = &freeQhead;
 struct qentry* writeQ = &writeQhead;
 
-static int enq(struct qentry* queue, struct qentry* ent);
-
- int initq() {
+int initq() {
 	for (int i=0;i<NUM_BUFS; i++) {
 		raw_entries[i].idx = i;
 		raw_entries[i].size = -1;
@@ -155,19 +147,27 @@ static int enq(struct qentry* queue, struct qentry* ent);
 /// @return entry pointer or NULL if empty
  struct qentry* deq(struct qentry* queue)
 {
-	if (!queue->next)
+	tx_mutex_get(&q_mutex, TX_WAIT_FOREVER);
+
+	if (!queue->next) {
+		tx_mutex_put(&q_mutex);
 		return NULL;
+	}
 	struct qentry* ent = queue->next;
 	queue->next = ent->next;
 
 	if (ent)
 		ent->next = NULL; // sanitize, just in case.
+
+	tx_mutex_put(&q_mutex);
 	return ent;
 }
 
 /// enqueue an element at the end of the queue.
  int enq(struct qentry* queue, struct qentry* ent)
 {
+	tx_mutex_get(&q_mutex, TX_WAIT_FOREVER);
+
 	struct qentry* iter = queue;
 	// go to the end of the q
 	while (iter ->next) {
@@ -175,6 +175,8 @@ static int enq(struct qentry* queue, struct qentry* ent);
 	}
 	iter->next = ent;
 	ent->next = NULL; // sanitize, just in case.
+
+	tx_mutex_put(&q_mutex);
 	return 0;
 }
 
@@ -438,6 +440,7 @@ void main_thread_func(ULONG arg){
   if(BSP_CAMERA_DoubleBufferStart(0, (uint8_t *)(0x34050000),(uint8_t *)(0x3413A600), CAMERA_MODE_CONTINUOUS)!= BSP_ERROR_NONE){
     Error_Handler();
   }
+
   /* Initialize LCD */
   int err = BSP_LCD_InitEx(0, LCD_ORIENTATION_LANDSCAPE, LCD_PIXEL_FORMAT_RGB565, LCD_DEFAULT_WIDTH, LCD_DEFAULT_HEIGHT);
   if(err){
@@ -453,47 +456,78 @@ void main_thread_func(ULONG arg){
   BSP_LED_On(LED1);
   BSP_LED_On(LED2);
 
-  /* initialize encoder software for camera feed encoding */
-  encoder_prepare(800,600,(uint32_t*)0x3413A600);
 
-  while (frame_nb < VIDEO_FRAME_NB)
-  {
-    if(BSP_CAMERA_BackgroundProcess() != BSP_ERROR_NONE)
-    {
-      Error_Handler();
-    }
+  FxThreadState myState = NO_CARD;
+  ULONG s_msg = DATA_AVAILABLE;
+  while (1) {
 
-    if(buf_index_changed){
-      /* new frame available */
-      buf_index_changed = 0;
-
-      auto ent = deq(freeQ);
-      if (!ent) {
-          TRACE_MAIN("CANNOT DEQ %d\n", frame_nb);
-    	  break;
-      }
-
-      int ret = Encode_frame(ent);
-      if (ret < 0) {
-    	  break;
-      }
-      HAL_SD_GetCardState(&hsd1);
-      enq(freeQ, ent);
-
-      tx_semaphore_put(&write_q_semaphore);
+//
+//		if(buf_index_changed){
+//		  /* new frame available */
+//		  buf_index_changed = 0;
+//		} else {
+//			tx_thread_sleep(1);
+//			continue;
+//		}
 
 
-//		printf("tx sem ... %d\r\n", sd_tx_semaphore.tx_semaphore_count );
-//	  tx_semaphore_get(&sd_tx_semaphore, TX_NO_WAIT);
-//		printf("... got\r\n");
-		tx_semaphore_put(&write_q_semaphore);
-    }
+		while (frame_nb < VIDEO_FRAME_NB) {
+		  if (state == FILE_OPENED && myState != FILE_OPENED) {
+				  // file opened -> init encoder
+				  printf("STARTING ENCODER \r\n");
+				  // todo: start encoding on sensor event.
+
+				  /* initialize encoder software for camera feed encoding */
+				  encoder_prepare(800,600,(uint32_t*)0x3413A600);
+
+				  myState = FILE_OPENED;
+			  }
+
+
+		if(buf_index_changed){
+		  /* new frame available */
+		  buf_index_changed = 0;
+
+
+		if(BSP_CAMERA_BackgroundProcess() != BSP_ERROR_NONE)
+		{
+		  Error_Handler();
+		}
+
+		  if (myState == FILE_OPENED) {
+			  struct qentry* ent = deq(freeQ);
+
+			  if (!ent) {
+				  // no free buffers available - silently fail over
+				  // and wait for the next frame.
+			  } else {
+
+				  int ret = Encode_frame(ent);
+				  frame_nb++;
+				  if (ret < 0) {
+					  break;
+				  }
+
+				  TRACE_MAIN("ENQ writeQ %d - %d i %d s %d\r\n", frame_nb, cam_frame_counter, ent->idx, ent->size);
+
+				  enq(writeQ, ent);
+				  notify_data_available();
+			  }
+		  }
+		}
+	  }
+	  if (frame_nb == VIDEO_FRAME_NB) {
+		  /* after encoding a certain nb of frames, close file & flush buffers */
+		  encoder_end();
+		  flush_out_buffer();
+		  frame_nb++;
+	  }
+
+	  myState = NO_CARD;
+	  BSP_LED_Off(LED1);
+	  BSP_LED_Off(LED2);
   }
-  /* after encoding a certain nb of frames, end program */
-  encoder_end();
-  flush_out_buffer();
-  BSP_LED_Off(LED1);
-  BSP_LED_Off(LED2);
+
 
   /* program ended */
   while(1);
@@ -624,41 +658,42 @@ static int print_timer(uint8_t* img_addr) {
 
 	int x = cam_frame_counter;
 	int stride = LCD_DEFAULT_WIDTH * 2 /*bpp*/ ;
-	char* line0= img_addr + (4+0)* stride;
-	char* line1= img_addr + (4+1)* stride;
-	char* line2= img_addr + (4+2)* stride;
-	char* line3= img_addr + (4+3)* stride;
+	uint8_t* line0= img_addr + (4+0)* stride;
+	uint8_t* line1= img_addr + (4+1)* stride;
+	uint8_t* line2= img_addr + (4+2)* stride;
+	uint8_t* line3= img_addr + (4+3)* stride;
 	int xofs=0;
 	while (x) {
 		if (x & 1) {
 			for (int w=0;w<4;w++) {
-				line0[xofs] = 0xff;
-				line0[xofs+1] = 0xff;
-				line1[xofs] = 0xff;
-				line1[xofs+1] = 0xff;
-				line2[xofs] = 0xff;
-				line2[xofs+1] = 0xff;
-				line3[xofs] = 0xff;
-				line3[xofs+1] = 0xff;
+				line0[w+xofs] = 0xff;
+				line0[w+xofs+1] = 0xff;
+				line1[w+xofs] = 0xff;
+				line1[w+xofs+1] = 0xff;
+				line2[w+xofs] = 0xff;
+				line2[w+xofs+1] = 0xff;
+				line3[w+xofs] = 0xff;
+				line3[w+xofs+1] = 0xff;
 			}
 		} else {
 			for (int w=0;w<4;w++) {
-				line0[xofs] = 0x00;
-				line0[xofs+1] = 0x00;
-				line1[xofs] = 0x00;
-				line1[xofs+1] = 0x00;
-				line2[xofs] = 0x00;
-				line2[xofs+1] = 0x00;
-				line3[xofs] = 0x00;
-				line3[xofs+1] = 0x00;
+				line0[w+xofs] = 0x00;
+				line0[w+xofs+1] = 0x00;
+				line1[w+xofs] = 0x00;
+				line1[w+xofs+1] = 0x00;
+				line2[w+xofs] = 0x00;
+				line2[w+xofs+1] = 0x00;
+				line3[w+xofs] = 0x00;
+				line3[w+xofs+1] = 0x00;
 			}
 		}
-		xofs+=2;
+		xofs+=4;
 		x >>= 1;
 	}
 }
 
-
+/** runs the video encoder on a single frame.
+ * */
 static int Encode_frame(struct qentry* ent){
   int ret = H264ENC_FRAME_READY;
   if(!img_addr){
@@ -667,7 +702,7 @@ static int Encode_frame(struct qentry* ent){
   }
   printf("enc p %d -> %d %d\r\n", ent->idx, frame_nb, cam_frame_counter);
 
-  print_timer(ent->data);
+  print_timer(img_addr);
 
   encIn.pOutBuf = ent->data;
   encIn.busOutBuf = (uint32_t) ent->data;
@@ -695,12 +730,13 @@ static int Encode_frame(struct qentry* ent){
   switch (ret)
   {
   case H264ENC_FRAME_READY:
+	  // the actual write operation is performed by the filex thread
     /*save stream */
-    if (save_stream(output_size, ent->data,  ent->size))
-    {
-      TRACE_MAIN("error saving stream frame %d\n", frame_nb);
-      return -1;
-    }
+//    if (save_stream(output_size, ent->data,  ent->size))
+//    {
+//      TRACE_MAIN("error saving stream frame %d\n", frame_nb);
+//      return -1;
+//    }
     output_size += encOut.streamSize;
     break;
   case H264ENC_SYSTEM_ERROR:
@@ -710,14 +746,13 @@ static int Encode_frame(struct qentry* ent){
     TRACE_MAIN("error encoding frame %d : %d\n", frame_nb, ret);
     break;
   }
-  frame_nb++;
   return 0;
 }
 
 
 static int encoder_end(void){
   int ret = H264EncStrmEnd(encoder, &encIn, &encOut);
-  TRACE_MAIN("done encoding %d frames. size : %d\n",frame_nb ,output_size);
+  TRACE_MAIN("done encoding %d frames. size : %u\n",frame_nb ,output_size);
   if (ret != H264ENC_OK)
   {
     return -1;
@@ -888,10 +923,10 @@ void BSP_CAMERA_FrameEventCallback(uint32_t instance)
 {
   /* swap buffers and signal new frame*/
   img_addr = DCMIPP->P1STM0AR;
-  buf_index_changed = 1;
   cam_frame_counter++;
   BSP_LCD_SetLayerAddress(0, 0, img_addr);
   BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
+  buf_index_changed = 1;
 }
 
 HAL_StatusTypeDef MX_LTDC_ClockConfig(LTDC_HandleTypeDef *hltdc)
