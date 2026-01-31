@@ -55,6 +55,8 @@ INT fx_stm32_sd_init(UINT instance)
   }
 #else
   printf("FXG INIT SD2 %d\r\n", instance);
+  HAL_SD_MspInit(&hsd_sdmmc[0]);
+
   BSP_SD_Init(instance);
 #endif
 
@@ -223,7 +225,7 @@ void HAL_SD_TxCpltCallback(SD_HandleTypeDef *hsd)
   * @param  instance     SD instance
   * @retval None
   */
-__weak void BSP_SD_WriteCpltCallback(uint32_t instance)
+void BSP_SD_WriteCpltCallback(uint32_t instance)
 {
   /* Prevent unused argument(s) compilation warning */
   UNUSED(instance);
@@ -231,7 +233,6 @@ __weak void BSP_SD_WriteCpltCallback(uint32_t instance)
 }
 #endif
 
-#if (FX_STM32_SD_USE_HAL == 1)
 
 void HAL_SD_MspInit(SD_HandleTypeDef* hsd)
 {
@@ -291,13 +292,17 @@ void HAL_SD_MspDeInit(SD_HandleTypeDef* hsd)
     __HAL_RCC_SDMMC2_CLK_DISABLE();
   }
 }
-#endif
 
-//
-//void SDMMC2_IRQHandler(void)
-//{
-//  HAL_SD_IRQHandler(&hsd1);
-//}
+
+
+void SDMMC2_IRQHandler(void)
+{
+#if (FX_STM32_SD_USE_HAL == 1)
+  HAL_SD_IRQHandler(&hsd_sdmmc[0]);
+#else
+  BSP_SD_IRQHandler(0);
+#endif
+}
 
 
 #if (FX_STM32_SD_USE_HAL == 1)
@@ -327,7 +332,7 @@ void HAL_SD_RxCpltCallback(SD_HandleTypeDef *hsd)
   * @param  instance     SD instance
   * @retval None
   */
-__weak void BSP_SD_ReadCpltCallback(uint32_t instance)
+void BSP_SD_ReadCpltCallback(uint32_t instance)
 {
   /* Prevent unused argument(s) compilation warning */
 	tx_semaphore_put(&sd_rx_semaphore);
