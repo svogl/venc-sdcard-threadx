@@ -36,7 +36,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* Main thread stack size */
-#define FX_APP_THREAD_STACK_SIZE 2 * 1024
+#define FX_APP_THREAD_STACK_SIZE 4 * 1024
 /* Main thread priority */
 #define FX_APP_THREAD_PRIO 10
 
@@ -127,6 +127,9 @@ UINT VENC_FileX_Init(void) {
 
   /* USER CODE BEGIN MX_FileX_Init */
 
+  // HW init
+
+
   /* Create the message queue */
   ret = tx_queue_create(&tx_msg_queue, "sd_event_queue", 1, (VOID *)queue_buf,
                         DEFAULT_QUEUE_LENGTH * sizeof(ULONG));
@@ -144,9 +147,6 @@ UINT VENC_FileX_Init(void) {
   /* USER CODE END MX_FileX_Init */
 //	printf("VENC_INIT SD %d\r\n", 0);
 //	BSP_SD_Init(0);
-
-  /* Initialize FileX.  */
-  fx_system_initialize();
 
   /* USER CODE BEGIN MX_FileX_Init 1*/
 
@@ -170,6 +170,9 @@ UINT VENC_FileX_Init(void) {
   }
 
   /* USER CODE END MX_FileX_Init 1*/
+
+  /* Initialize FileX.  */
+  fx_system_initialize();
 
   return ret;
 }
@@ -237,6 +240,7 @@ void fx_app_thread_func(ULONG thread_input) {
       }
       unsigned ret=FX_SUCCESS;
 
+//  	printf("NOTI %d \r\n", r_msg);
       switch (r_msg) {
       case DATA_AVAILABLE:
     	  // data should be available: if file is open, dequeue and write; otherwise
@@ -244,7 +248,7 @@ void fx_app_thread_func(ULONG thread_input) {
     	  if (state == FILE_OPENED) {
     	      BSP_LED_On(LED_GREEN);
 
-    		  ret = state_write_data();
+    	      ret = state_write_data();
     	  } else {
     		  // file not open -> shuffle q objects back to the free q
     		  struct qentry* e = deq(writeQ);
@@ -257,7 +261,7 @@ void fx_app_thread_func(ULONG thread_input) {
     	  break;
 
       case CARD_STATUS_CHANGED:
-          printf("TDX STAT %08x\r\n", r_msg);
+//          printf("TDX STAT %08x\r\n", r_msg);
     	  if (state == NO_CARD) {
     		  // card inserted...
     		  ret = state_open_card();
@@ -334,7 +338,7 @@ static int state_open_card()
 }
 
 static void state_write_notify(struct FX_FILE_STRUCT *file) {
-	printf("WROTE\r\n");
+	printf("WROTE to %s\r\n", file->fx_file_name);
 }
 
 static int state_open_file(char* fname)
@@ -393,24 +397,23 @@ static int state_write_data()
 	unsigned int size;
 
 	struct qentry* entry = deq(writeQ);
+	do {
+		if (entry == NULL) { // should not happen!
+			printf("write_data - internal error, empty writeQ!\r\n");
+			return FX_SUCCESS; // ignore for now...
+			// return FX_NOT_FOUND;
+		}
+		uint32_t t1 = HAL_GetTick();
 
-	if (! entry) { // should not happen!
-		printf("write_data - internal error, empty writeQ!\r\n");
-		return FX_SUCCESS; // ignore for now...
-		// return FX_NOT_FOUND;
-	}
+		UINT status = _fx_file_write(&fx_file, entry->data, entry->size/4);
 
-    uint32_t t1 = HAL_GetTick();
+		uint32_t t2 = HAL_GetTick();
+		printf("write %d %d %d\r\n", entry->idx, entry->size, (t2-t1));
 
-	UINT status = fx_file_write(&fx_file, entry->data, entry->size);
-
-	uint32_t t2 = HAL_GetTick();
-	printf("write %d %d %d\r\n", entry->idx, entry->size, (t2-t1));
-
-
-	enq(freeQ, entry);
-
-	return status;
+		enq(freeQ, entry);
+		entry = deq(writeQ);
+	} while (entry != NULL);
+	return 0;
 }
 
 
@@ -421,7 +424,10 @@ static int state_write_data()
 
 UINT VENC_FileX_write(CHAR *data, LONG size) {
   /* Write the given data to the file.  */
+    uint32_t t1 = HAL_GetTick();
   UINT status = _fx_file_write(&fx_file, data, size);
+	uint32_t t2 = HAL_GetTick();
+	printf("WRT %d %d\r\n", size, (t2-t1));
 
   return status;
 }
@@ -455,7 +461,7 @@ UINT VENC_FileX_close(void) {
 static UINT SD_IsDetected(uint32_t Instance) {
   UINT ret;
 
-  return BSP_SD_IsDetected(Instance) ? HAL_OK : HAL_ERROR;
+//  return BSP_SD_IsDetected(Instance) ? HAL_OK : HAL_ERROR;
 
   if (Instance >= 1) {
     ret = HAL_ERROR;
