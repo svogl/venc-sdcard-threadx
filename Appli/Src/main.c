@@ -228,7 +228,7 @@ int save_stream(uint32_t offset, uint32_t * buf, size_t size){
   return 0;
 #endif
 	uint32_t t2 = HAL_GetTick();
-	printf("write %d %d %d\r\n", ret, size, (t2-t1));
+	printf("save_stream %d %d %d\r\n", ret, size, (t2-t1));
 	return ret;
 }
 
@@ -296,7 +296,7 @@ int main(void)
 */
 void tx_application_define(void *first_unused_memory)
 {
-	  if (1) {
+	  if (0) {
 		  void *thread_stack_pointer;
 		  tx_byte_pool_create(&byte_pool_w, "byte pool w", tx_write_heap, sizeof(tx_write_heap));
 		  tx_byte_allocate(&byte_pool_w,
@@ -308,8 +308,8 @@ void tx_application_define(void *first_unused_memory)
 		              10,  // priority
 					  8,  // preempt threshold
 					  TX_APP_THREAD_TIME_SLICE,
-//					  TX_DONT_START);
-					  TX_AUTO_START);
+					  TX_DONT_START);
+//					  TX_AUTO_START);
 	  }
 	  {
 		  void *thread_stack_pointer;
