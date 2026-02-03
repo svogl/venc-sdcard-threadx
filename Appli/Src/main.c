@@ -112,7 +112,7 @@ static int frame_nb = 0;
 
 // static memory block that is used for buffers
 //__attribute__ ((section (".psram_bss")))
-__attribute__ ((aligned (8)))
+__attribute__ ((aligned (32)))
 uint8_t out_buffers[NUM_BUFS][BUF_SIZE] __NON_CACHEABLE;
 
 // pointer to buffer

@@ -222,7 +222,7 @@ extern "C" {
 
 /* ################## SDMMC peripheral configuration ######################### */
 
-#define USE_SD_TRANSCEIVER            0U
+#define USE_SD_TRANSCEIVER            1U
 
 
 /* Includes ------------------------------------------------------------------*/

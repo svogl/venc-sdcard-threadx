@@ -27,6 +27,7 @@
 #include "main.h"
 #include "stm32n6570_discovery.h"
 #include "stm32n6570_discovery_sd.h"
+#include "stm32n6xx_hal.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -333,6 +334,34 @@ static int state_open_card()
   fx_media_close_notify_set(&sdio_disk, media_close_callback);
 
 
+  {
+	  int instance = 0;
+	  SD_HandleTypeDef* hsd = &hsd_sdmmc[instance];
+
+	  HAL_SD_CardStateTypeDef s = HAL_SD_GetCardState(hsd);
+	  printf("S %d e? %d\r\n", s, hsd->ErrorCode);
+
+	  HAL_SD_CardInfoTypeDef cinfo;
+
+	  HAL_SD_CardCIDTypeDef cid;
+	  HAL_SD_CardCSDTypeDef csd;
+	  HAL_SD_CardStatusTypeDef cStatus;
+
+	  // get come more card info:
+	  HAL_SD_GetCardInfo(hsd, &cinfo);
+	  HAL_SD_GetCardCID(hsd, &cid);
+	  HAL_SD_GetCardCSD(hsd, &csd);
+	  HAL_SD_GetCardStatus(hsd, &cStatus);
+
+	  printf("CardInfo type %u, version %u, class %u, spd %u\r\n",
+			  cinfo.CardType,
+			  cinfo.CardVersion,
+			  cinfo.Class,
+			  cinfo.CardSpeed
+			  );
+	//  $10 = {CardType = 0, CardVersion = 1, Class = 0, RelCardAdd = 0, BlockNbr = 0, BlockSize = 0, LogBlockNbr = 0, LogBlockSize = 0, CardSpeed = 876165616}
+  }
+
   printf("COPENED\r\n");
   return FX_SUCCESS;
 }
@@ -405,7 +434,7 @@ static int state_write_data()
 		}
 		uint32_t t1 = HAL_GetTick();
 
-		UINT status = _fx_file_write(&fx_file, entry->data, entry->size/4);
+		UINT status = _fx_file_write(&fx_file, entry->data, entry->size);
 
 		uint32_t t2 = HAL_GetTick();
 		printf("write %d %d %d\r\n", entry->idx, entry->size, (t2-t1));

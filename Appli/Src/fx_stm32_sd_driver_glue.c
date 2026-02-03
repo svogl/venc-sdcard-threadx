@@ -25,6 +25,10 @@ SD_HandleTypeDef hsd1;
 
 /* USER CODE BEGIN 0 */
 
+void HAL_SD_DriveTransceiver_1_8V_Callback(FlagStatus status);
+
+// n.b. that instance == 0 in the following calls.
+
 /* USER CODE END 0 */
 
 /**
@@ -54,16 +58,28 @@ INT fx_stm32_sd_init(UINT instance)
     Error_Handler();
   }
 #else
-  printf("FXG INIT SD2 %d\r\n", instance);
-  HAL_SD_MspInit(&hsd_sdmmc[0]);
+  SD_HandleTypeDef* hsd = &hsd_sdmmc[instance];
 
-  BSP_SD_Init(instance);
+  HAL_SD_MspInit(hsd);
+
+
+#if (USE_SD_TRANSCEIVER != 0U)
+  // there are no definitions for HAL_SD_RegisterCallback, so set the function directly:
+  hsd_sdmmc[instance].DriveTransceiver_1_8V_Callback = HAL_SD_DriveTransceiver_1_8V_Callback;
+//  if (HAL_SD_RegisterCallback(&hsd_sdmmc[Instance], HAL_SD_1_8_V_DRIVER_ID, MY_SD_DriveTransceiver_1_8V_Callback) != HAL_OK)
+//  {
+//	  printf("1V8 DRIVER CALLBACK REGISTER FAILED\r\n");
+//    return HAL_ERROR;
+//  }
+#endif
+  ret = BSP_SD_Init(instance);
+
+  printf("FXG INIT SD2 %d r=%d\r\n", instance, ret);
+
+  ret = 0;
 #endif
 
   /* USER CODE BEGIN POST_FX_SD_INIT */
-//  HAL_SD_ConfigWideBusOperation(&hsd1, SDMMC_BUS_WIDE_4B);
-//  HAL_SD_ConfigSpeedBusOperation(&hsd1, SDMMC_SPEED_MODE_AUTO);
-//  printf("CARD TYPE %d speed %d \r\n", hsd1.SdCard.CardType, hsd1.SdCard.CardSpeed );
 
   /* USER CODE END POST_FX_SD_INIT */
 
@@ -182,6 +198,7 @@ INT fx_stm32_sd_write_blocks(UINT instance, UINT *buffer, UINT start_block, UINT
     ret = 1;
   }
 #else
+//  printf("wb %d @ %d\r\n", total_blocks, start_block);
     if (BSP_SD_WriteBlocks_DMA( instance, buffer, start_block, total_blocks)!= BSP_ERROR_NONE)
     {
       ret = 1;
@@ -261,6 +278,27 @@ void HAL_SD_MspInit(SD_HandleTypeDef* hsd)
     gpio_init_structure.Pin = GPIO_PIN_4;
     HAL_GPIO_Init(GPIOE, &gpio_init_structure);
 
+#if (USE_SD_TRANSCEIVER != 0U)
+    //////// 3v3 / 1V8 switch for SD_TRANSCEIVER
+    // this is PO5 / SD_SEL
+    {
+    	// needed for PO pin operation:
+    	HAL_PWREx_EnableVddIO2();
+        __HAL_RCC_GPIOO_CLK_ENABLE();
+
+    	GPIO_InitTypeDef gpio_init_structure = {0};
+		gpio_init_structure.Mode      = GPIO_MODE_AF_PP;
+		gpio_init_structure.Pull      = GPIO_NOPULL;
+		gpio_init_structure.Speed     = GPIO_SPEED_FREQ_MEDIUM;
+		gpio_init_structure.Alternate = GPIO_MODE_OUTPUT_PP;
+		gpio_init_structure.Pin = GPIO_PIN_5 ;
+
+		HAL_GPIO_Init(GPIOO, &gpio_init_structure);
+
+		HAL_GPIO_WritePin(GPIOO, GPIO_PIN_5, GPIO_PIN_RESET );
+    }
+#endif
+
     /* NVIC configuration for SDMMC2 interrupts */
     HAL_NVIC_SetPriority(SDMMC2_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(SDMMC2_IRQn);
@@ -336,6 +374,17 @@ void BSP_SD_ReadCpltCallback(uint32_t instance)
 {
   /* Prevent unused argument(s) compilation warning */
 	tx_semaphore_put(&sd_rx_semaphore);
+}
+
+void HAL_SD_DriveTransceiver_1_8V_Callback(FlagStatus status)
+{
+	//  analog switch NXP NX3L1T3157; SEL pin: input 0 (sel low): VDD_SD, input 1(sel hi): 1v8
+printf("1V8 CB: %d\r\n", status);
+	if (status == RESET) {
+		HAL_GPIO_WritePin(GPIOO, GPIO_PIN_5, GPIO_PIN_RESET );
+	} else {
+		HAL_GPIO_WritePin(GPIOO, GPIO_PIN_5, GPIO_PIN_SET );
+	}
 }
 
 #endif

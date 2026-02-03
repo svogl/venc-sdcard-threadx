@@ -135,97 +135,34 @@ void DCMIPP_IRQHandler(void)
   BSP_CAMERA_IRQHandler(0);
 }
 
-void XSPI3_IRQHandler(void)
-{
-	printf("spi3\r\n");
-}
+void XSPI3_IRQHandler(void){ printf("%s\r\n",__func__); }
+void XSPI2_IRQHandler(void){ printf("%s\r\n",__func__); }
+void XSPI1_IRQHandler(void){ printf("%s\r\n",__func__); }
+void WWDG_IRQHandler(void){ printf("%s\r\n",__func__); }
+void WAKEUP_PIN_IRQHandler(void){ printf("%s\r\n",__func__); }
+void USB2_OTG_HS_IRQHandler(void){ printf("%s\r\n",__func__); }
+void USB1_OTG_HS_IRQHandler(void){ printf("%s\r\n",__func__); }
+void USART10_IRQHandler(void){ printf("%s\r\n",__func__); }
+void USART6_IRQHandler(void){ printf("%s\r\n",__func__); }
+void USART3_IRQHandler(void){ printf("%s\r\n",__func__); }
+void USART2_IRQHandler(void){ printf("%s\r\n",__func__); }
+void USART1_IRQHandler(void){ printf("%s\r\n",__func__); }
+void UART9_IRQHandler(void){ printf("%s\r\n",__func__); }
+void UART8_IRQHandler(void){ printf("%s\r\n",__func__); }
+void UART7_IRQHandler(void){ printf("%s\r\n",__func__); }
+void UART5_IRQHandler(void){ printf("%s\r\n",__func__); }
+void UART4_IRQHandler(void){ printf("%s\r\n",__func__); }
+void UCPD1_IRQHandler(void){ printf("%s\r\n",__func__); }
 
-void XSPI2_IRQHandler(void)
-{
-	printf("spi2\r\n");
-}
-
-void XSPI1_IRQHandler(void)
-{
-	printf("spi2\r\n");
-}
-
-void WWDG_IRQHandler(void)
-{
-	printf("wwdg\r\n");
-}
-
-void WAKEUP_PIN_IRQHandler(void)
-{
-	printf("wake\r\n");
-}
-
-void USB2_OTG_HS_IRQHandler(void)
-{
-	printf("usb2 otg\r\n");
-}
-
-void USB1_OTG_HS_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-void USART10_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-void USART6_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-void USART3_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-void USART2_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-void USART1_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-void UART9_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-void UART8_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-void UART7_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-void UART5_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-void UART4_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-void UCPD1_IRQHandler(void)
-{
-	printf("%s\r\n",__func__);
-}
-
-
+void TIM18_IRQHandler(void) { printf("%s\r\n",__func__); }
+void TIM17_IRQHandler(void) { printf("%s\r\n",__func__); }
+void TIM16_IRQHandler(void) { printf("%s\r\n",__func__); }
+void TIM15_IRQHandler(void) { printf("%s\r\n",__func__); }
+void TIM14_IRQHandler(void) { printf("%s\r\n",__func__); }
+void TIM13_IRQHandler(void) { printf("%s\r\n",__func__); }
+void TIM12_IRQHandler(void) { printf("%s\r\n",__func__); }
+void TIM11_IRQHandler(void) { printf("%s\r\n",__func__); }
+void TIM10_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM9_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM8_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM7_IRQHandler(void) { printf("%s\r\n",__func__); }
@@ -233,7 +170,9 @@ void TIM6_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM5_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM4_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM3_IRQHandler(void) { printf("%s\r\n",__func__); }
-//void TIM2_IRQHandler(void) { printf("%s\r\n",__func__); }
+
+// void TIM2_IRQHandler(void) { printf("%s\r\n",__func__); }
+
 void TIM1_IRQHandler(void) { printf("%s\r\n",__func__); }
 
 void TIM8_UP_IRQHandler(void) { printf("%s\r\n",__func__); }
@@ -241,13 +180,29 @@ void TIM8_BRK_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM8_TRG_CCU_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM8_CC_IRQHandler(void) { printf("%s\r\n",__func__); }
 
+void TIM1_UP_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM1_ER_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM1_BRK_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM1_TRG_CCU_IRQHandler(void) { printf("%s\r\n",__func__); }
 void TIM1_CC_IRQHandler(void) { printf("%s\r\n",__func__); }
 
 
+void TCM_ECC_IRQHandler(void) { printf("%s\r\n",__func__); }
 
+void TAMP_IRQHandler(void) { printf("%s\r\n",__func__); }
+void SVC_Handler(void) { printf("%s\r\n",__func__); }
+
+
+void SPI1_IRQHandler(void) { printf("%s\r\n",__func__); }
+void SPI2_IRQHandler(void) { printf("%s\r\n",__func__); }
+void SPI3_IRQHandler(void) { printf("%s\r\n",__func__); }
+void SPI4_IRQHandler(void) { printf("%s\r\n",__func__); }
+void SPI5_IRQHandler(void) { printf("%s\r\n",__func__); }
+void SPI6_IRQHandler(void) { printf("%s\r\n",__func__); }
+
+void SPDIFRX_IRQHandler(void) { printf("%s\r\n",__func__); }
+
+//void SDMMC2_IRQHandler(void) { printf("%s\r\n",__func__); }
 
 /**
   * @}
