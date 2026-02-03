@@ -321,7 +321,7 @@ static int state_open_card()
   }
 
   /* Open the SD disk driver */
-  sd_status = fx_media_open(&sdio_disk, FX_SD_VOLUME_NAME, fx_stm32_sd_driver,
+  sd_status = _fx_media_open(&sdio_disk, FX_SD_VOLUME_NAME, fx_stm32_sd_driver,
 							(VOID *)FX_NULL, (VOID *)fx_sd_media_memory,
 							sizeof(fx_sd_media_memory));
 
@@ -358,6 +358,10 @@ static int state_open_card()
 			  cinfo.CardVersion,
 			  cinfo.Class,
 			  cinfo.CardSpeed
+			  );
+	  printf("Inst PWR %08x CLKCR %08x \r\n",
+			  hsd->Instance->POWER,
+			  hsd->Instance->CLKCR
 			  );
 	//  $10 = {CardType = 0, CardVersion = 1, Class = 0, RelCardAdd = 0, BlockNbr = 0, BlockSize = 0, LogBlockNbr = 0, LogBlockSize = 0, CardSpeed = 876165616}
   }
