@@ -74,7 +74,7 @@ uint8_t fx_thread_stack[FX_APP_THREAD_STACK_SIZE];
 
 /* Buffer for FileX FX_MEDIA sector cache. */
 ALIGN_32BYTES(
-    uint32_t fx_sd_media_memory[600 * FX_STM32_SD_DEFAULT_SECTOR_SIZE /
+    uint32_t fx_sd_media_memory[60 * FX_STM32_SD_DEFAULT_SECTOR_SIZE /
                                 sizeof(uint32_t)]) __NON_CACHEABLE;
 
 /* Define FileX global data structures.  */
@@ -88,6 +88,44 @@ FX_FILE fx_file;
 TX_QUEUE tx_msg_queue;
 ULONG queue_buf[DEFAULT_QUEUE_LENGTH];
 /* USER CODE END PV */
+
+#define FIFO_SIZE (160*1024)
+
+////////////////
+////////////////
+//////////////// FIRST COME, FIRST SERVE!
+////////////////
+////////////////
+
+typedef struct  {
+	uint8_t data[FIFO_SIZE];
+	int start; // pointer to start of buffer
+	int end; // pointer to end of buffer
+
+} fifo_buf;
+
+__attribute__ ((aligned (8)))
+fifo_buf sd_fifo = { "", 0,0};
+
+
+static int fifo_contains(const fifo_buf* fifo ) { return fifo->end - fifo->start ; }
+
+static int fifo_enq(fifo_buf* fifo, uint8_t* data, int size) {
+	if (fifo->end + size >= FIFO_SIZE) { // buffer full
+		return -1;
+	}
+	// enqueue data into fifo:
+	memcpy(&fifo->data[fifo->end], data, size);
+	fifo->end += size;
+
+	return 0;
+}
+
+////////////////
+////////////////
+//////////////// FIRST COME, FIRST SERVE!
+////////////////
+////////////////
 
 /* Private function prototypes -----------------------------------------------*/
 /* Main thread entry function.  */
@@ -321,7 +359,7 @@ static int state_open_card()
   }
 
   /* Open the SD disk driver */
-  sd_status = _fx_media_open(&sdio_disk, FX_SD_VOLUME_NAME, fx_stm32_sd_driver,
+  sd_status = fx_media_open(&sdio_disk, FX_SD_VOLUME_NAME, fx_stm32_sd_driver,
 							(VOID *)FX_NULL, (VOID *)fx_sd_media_memory,
 							sizeof(fx_sd_media_memory));
 
@@ -371,7 +409,7 @@ static int state_open_card()
 }
 
 static void state_write_notify(struct FX_FILE_STRUCT *file) {
-	printf("WROTE to %s\r\n", file->fx_file_name);
+//	printf("WROTE to %s\r\n", file->fx_file_name);
 }
 
 static int state_open_file(char* fname)
@@ -423,13 +461,84 @@ static int state_close_sdcard()
 	return FX_SUCCESS;
 }
 
+// 512, effectively:
+#define BLOCK_SIZE FX_STM32_SD_DEFAULT_SECTOR_SIZE
+
+
+// write to fifo & dump to disk if possible.
+// wraps around fifo as necessary
+
+int fifo_write(FX_FILE* file, fifo_buf* fifo, uint8_t* data, int size) {
+	if (fifo->start == fifo->end ) {
+		// TODO: optimize: write directly to disk, queue only non-blocksize portion
+	}
+	UINT status=0;
+	while (size > 0) {
+		int enq_size = size;
+		if (fifo->end + size  > FIFO_SIZE) {
+			enq_size = FIFO_SIZE - fifo->end;
+		}
+
+		// enqueue data into fifo:
+		fifo_enq(fifo, data, enq_size);
+		size -= enq_size; // move forward
+		data += enq_size;
+
+		int delta = fifo_contains(fifo);
+
+		if (delta > BLOCK_SIZE) {
+			int blocks = delta/BLOCK_SIZE;
+			int write_size = blocks * BLOCK_SIZE;
+			// write n full blocks to disk
+
+
+		    uint32_t t1 = HAL_GetTick();
+
+			status = fx_file_write(&fx_file, &fifo->data[fifo->start], write_size);
+
+			uint32_t t2 = HAL_GetTick();
+			printf("FIF %ld %d %ld\r\n", fifo->start, write_size, (t2-t1));
+
+
+			// TODO: abort on error
+			fifo->start += write_size; // points to beginning of fresh data.
+
+			int tail = fifo_contains(fifo); // the last few bytes..:
+
+			// fifo_compact() - move the remaining bytes to front:
+			if ( tail && fifo->start > 0) {
+				// TODO: this is not elegant, rather wrap around buffers; on the other
+				// hand, DMA transfer penalty could be higher than copying a few bytes.
+				// move data to beginning.
+				memcpy(&fifo->data[0], &fifo->data[fifo->start], tail);
+				fifo->start = 0;
+				fifo->end = tail;
+			}
+		}
+	}
+	return status;
+}
+
+// forcibly flush the remaining bytes in the buffer and reset.
+int fifo_flush(FX_FILE* file, fifo_buf* fifo) {
+	if (fifo->start == fifo->end) {
+		// fifo empty, nothing to do.
+		return 0;
+	}
+	UINT status = fx_file_write(&fx_file, &fifo->data[fifo->start], fifo->end - fifo->start);
+
+	// reset fifo:
+	fifo->start = 0;
+	fifo->end = 0;
+
+	return status;
+}
+
 
 static int state_write_data()
 {
-	unsigned char* data;
-	unsigned int size;
-
 	struct qentry* entry = deq(writeQ);
+	UINT status = 0;
 	do {
 		if (entry == NULL) { // should not happen!
 			printf("write_data - internal error, empty writeQ!\r\n");
@@ -438,38 +547,48 @@ static int state_write_data()
 		}
 		uint32_t t1 = HAL_GetTick();
 
-		UINT status = _fx_file_write(&fx_file, entry->data, entry->size);
+//		status = _fx_file_write(&fx_file, entry->data, entry->size);
+	    status = fifo_write(&fx_file, &sd_fifo, (uint8_t*)entry->data, entry->size);
 
 		uint32_t t2 = HAL_GetTick();
-		printf("write %d %d %d\r\n", entry->idx, entry->size, (t2-t1));
+		printf("write %ld %ld %ld\r\n", entry->idx, entry->size, (t2-t1));
 
 		enq(freeQ, entry);
 		entry = deq(writeQ);
 	} while (entry != NULL);
-	return 0;
+	return status;
 }
-
-
-
 
 
 /* USER CODE BEGIN 1 */
 
 UINT VENC_FileX_write(CHAR *data, LONG size) {
-  /* Write the given data to the file.  */
+	UINT status;
+	/* Write the given data to the file.  */
     uint32_t t1 = HAL_GetTick();
-  UINT status = _fx_file_write(&fx_file, data, size);
+
+    status = fifo_write(&fx_file, &sd_fifo, data, size);
+
+//  status = _fx_file_write(&fx_file, data, size);
 	uint32_t t2 = HAL_GetTick();
-	printf("WRT %d %d\r\n", size, (t2-t1));
+	printf("WRT %ld %ld\r\n", size, (t2-t1));
 
   return status;
 }
 
 UINT VENC_FileX_close(void) {
+	printf("CLOSING! \r\n");
+
+//	  fifo_flush(&fx_file, &sd_fifo);
+
+	tx_thread_sleep(1000); // let the sd write settle
+	printf("CLOSING!2 \r\n");
+
   /* Close the test file.  */
   UINT status = fx_file_close(&fx_file);
   /* Check the file close status.  */
   if (status != FX_SUCCESS) {
+		printf("CLOSING! E %d %d \r\n", __LINE__, status);
     /* Error closing the file, call error handler.  */
     return status;
   }
@@ -477,11 +596,14 @@ UINT VENC_FileX_close(void) {
   status = fx_media_flush(&sdio_disk);
   /* Check the media flush  status.  */
   if (status != FX_SUCCESS) {
+		printf("CLOSING! E %d %d \r\n", __LINE__, status);
     /* Error closing the file, call error handler.  */
     return status;
   }
   /* Close the media.  */
   status = fx_media_close(&sdio_disk);
+
+  printf("CLOSED! %d\r\n", status);
 
   return status;
 }

@@ -81,7 +81,7 @@ EWLLinearMem_t outbuf;
 
 
 __attribute__ ((section (".psram_bss")))
-__attribute__ ((aligned (8)))
+__attribute__ ((aligned (32)))
 uint8_t ewl_pool[1640000];// __NON_CACHEABLE;
 
 
@@ -112,7 +112,7 @@ static int frame_nb = 0;
 
 // static memory block that is used for buffers
 //__attribute__ ((section (".psram_bss")))
-__attribute__ ((aligned (32)))
+__attribute__ ((aligned (8)))
 uint8_t out_buffers[NUM_BUFS][BUF_SIZE] __NON_CACHEABLE;
 
 // pointer to buffer
@@ -519,8 +519,12 @@ void main_thread_func(ULONG arg){
 		}
 	  }
 	  if (frame_nb == VIDEO_FRAME_NB) {
+
 		  /* after encoding a certain nb of frames, close file & flush buffers */
 		  encoder_end();
+
+		tx_thread_sleep(1000); // let the sd write settle
+
 		  flush_out_buffer();
 		  frame_nb++;
 	  }
