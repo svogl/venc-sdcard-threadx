@@ -234,7 +234,8 @@ int save_stream(uint32_t offset, uint32_t * buf, size_t size){
 
 int flush_out_buffer(void){
 #if USE_SD_AS_OUTPUT
-  return (int) VENC_FileX_close();
+	notify_close();
+//  return (int) VENC_FileX_close();
 #else
   return 0;
 #endif
@@ -522,9 +523,6 @@ void main_thread_func(ULONG arg){
 
 		  /* after encoding a certain nb of frames, close file & flush buffers */
 		  encoder_end();
-
-		tx_thread_sleep(1000); // let the sd write settle
-
 		  flush_out_buffer();
 		  frame_nb++;
 	  }

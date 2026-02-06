@@ -90,6 +90,8 @@ extern FxThreadState state;
 
 extern void notify_data_available();
 
+extern void notify_close();
+
 //////////////////////////
 //////////////////////////
 ////////////////////////// 2 Q or not 2 Q... /API

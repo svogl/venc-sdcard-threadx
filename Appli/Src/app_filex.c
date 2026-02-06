@@ -97,6 +97,8 @@ ULONG queue_buf[DEFAULT_QUEUE_LENGTH];
 ////////////////
 ////////////////
 
+TX_MUTEX f_mutex;
+
 typedef struct  {
 	uint8_t data[FIFO_SIZE];
 	int start; // pointer to start of buffer
@@ -183,6 +185,11 @@ UINT VENC_FileX_Init(void) {
 	return TX_MUTEX_ERROR;
   }
 
+  ret = tx_mutex_create(&(f_mutex), "FIFO Mutex", TX_NO_INHERIT);
+  if (ret != FX_SUCCESS) {
+	return TX_MUTEX_ERROR;
+  }
+
   /* USER CODE END MX_FileX_Init */
 //	printf("VENC_INIT SD %d\r\n", 0);
 //	BSP_SD_Init(0);
@@ -224,6 +231,12 @@ void notify_data_available(){
 	s_msg = DATA_AVAILABLE;
 	tx_queue_send(&tx_msg_queue, &s_msg, TX_NO_WAIT);
 }
+
+void notify_close(){
+	s_msg = CLOSE_FILE;
+	tx_queue_send(&tx_msg_queue, &s_msg, TX_NO_WAIT);
+}
+
 
 
 void fx_app_thread_func(ULONG thread_input) {
@@ -327,6 +340,9 @@ void fx_app_thread_func(ULONG thread_input) {
     		  state = NO_CARD;
 			  BSP_LED_On(LED_RED);
     	  }
+    	  break;
+      case CLOSE_FILE:
+    	  VENC_FileX_close();
     	  break;
       default:
     	  printf("FIXME! UNKNOWN MSG %u\r\n", r_msg);
@@ -469,6 +485,7 @@ static int state_close_sdcard()
 // wraps around fifo as necessary
 
 int fifo_write(FX_FILE* file, fifo_buf* fifo, uint8_t* data, int size) {
+	tx_mutex_get(&f_mutex, TX_WAIT_FOREVER);
 	if (fifo->start == fifo->end ) {
 		// TODO: optimize: write directly to disk, queue only non-blocksize portion
 	}
@@ -514,8 +531,13 @@ int fifo_write(FX_FILE* file, fifo_buf* fifo, uint8_t* data, int size) {
 				fifo->start = 0;
 				fifo->end = tail;
 			}
+			if (!tail) { // sent everything -> reset fifo.
+				fifo->start = 0;
+				fifo->end = 0;
+			}
 		}
 	}
+	tx_mutex_put(&f_mutex);
 	return status;
 }
 
@@ -581,7 +603,7 @@ UINT VENC_FileX_close(void) {
 
 //	  fifo_flush(&fx_file, &sd_fifo);
 
-	tx_thread_sleep(1000); // let the sd write settle
+	tx_thread_sleep(300); // let the sd write settle
 	printf("CLOSING!2 \r\n");
 
   /* Close the test file.  */
