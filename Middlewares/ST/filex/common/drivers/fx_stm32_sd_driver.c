@@ -78,6 +78,9 @@ VOID  fx_stm32_sd_driver(FX_MEDIA *media_ptr)
 #if (FX_STM32_SD_DMA_API == 1)
   /* the SD DMA requires a 4-byte aligned buffers */
   unaligned_buffer = (UINT)(media_ptr->fx_media_driver_buffer) & 0x3;
+  if (unaligned_buffer) {
+	  printf("BUF UNALIGNED %d <- %08x\r\n", unaligned_buffer, media_ptr->fx_media_driver_buffer);
+  }
 #else
   /* if the DMA is not used there isn't any constraint on buffer alignment */
   unaligned_buffer = 0;
