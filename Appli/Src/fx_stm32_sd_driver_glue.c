@@ -76,7 +76,6 @@ INT fx_stm32_sd_init(UINT instance)
 
   printf("FXG INIT SD2 %d r=%d\r\n", instance, ret);
 
-  ret = 0;
 #endif
 
   /* USER CODE BEGIN POST_FX_SD_INIT */
