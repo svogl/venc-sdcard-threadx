@@ -325,6 +325,11 @@ void HAL_SD_MspDeInit(SD_HandleTypeDef* hsd)
     gpio_init_structure.Pin = GPIO_PIN_4;
     HAL_GPIO_DeInit(GPIOD, gpio_init_structure.Pin);
 
+#if (USE_SD_TRANSCEIVER != 0U)
+    gpio_init_structure.Pin = GPIO_PIN_5;
+    HAL_GPIO_DeInit(GPIOO, gpio_init_structure.Pin);
+#endif
+
     /* Disable SDMMC2 clock */
     __HAL_RCC_SDMMC2_CLK_DISABLE();
   }
