@@ -89,7 +89,7 @@ TX_QUEUE tx_msg_queue;
 ULONG queue_buf[DEFAULT_QUEUE_LENGTH];
 /* USER CODE END PV */
 
-#define FIFO_SIZE (160*1024)
+#define FIFO_SIZE (128*1024)
 
 ////////////////
 ////////////////
@@ -111,9 +111,10 @@ fifo_buf sd_fifo = { "", 0,0};
 
 
 static int fifo_contains(const fifo_buf* fifo ) { return fifo->end - fifo->start ; }
+static int fifo_available(const fifo_buf* fifo ) { return FIFO_SIZE - fifo->end	; }
 
 static int fifo_enq(fifo_buf* fifo, uint8_t* data, int size) {
-	if (fifo->end + size >= FIFO_SIZE) { // buffer full
+	if (fifo->end + size > FIFO_SIZE) { // buffer full
 		return -1;
 	}
 	// enqueue data into fifo:
@@ -492,8 +493,10 @@ int fifo_write(FX_FILE* file, fifo_buf* fifo, uint8_t* data, int size) {
 	UINT status=0;
 	while (size > 0) {
 		int enq_size = size;
-		if (fifo->end + size  > FIFO_SIZE) {
-			enq_size = FIFO_SIZE - fifo->end;
+		int available = fifo_available(fifo);
+
+		if (available < size) {
+			enq_size = available;
 		}
 
 		// enqueue data into fifo:
@@ -511,10 +514,12 @@ int fifo_write(FX_FILE* file, fifo_buf* fifo, uint8_t* data, int size) {
 
 		    uint32_t t1 = HAL_GetTick();
 
+			printf("FIF> %ld %d\r\n", fifo->start, write_size);
+
 			status = fx_file_write(&fx_file, &fifo->data[fifo->start], write_size);
 
 			uint32_t t2 = HAL_GetTick();
-			printf("FIF %ld %d %ld\r\n", fifo->start, write_size, (t2-t1));
+			printf("FIF< %ld %d %ld\r\n", fifo->start, write_size, (t2-t1));
 
 
 			// TODO: abort on error
@@ -573,7 +578,7 @@ static int state_write_data()
 	    status = fifo_write(&fx_file, &sd_fifo, (uint8_t*)entry->data, entry->size);
 
 		uint32_t t2 = HAL_GetTick();
-		printf("write %ld %ld %ld\r\n", entry->idx, entry->size, (t2-t1));
+//		printf("write %ld %ld %ld\r\n", entry->idx, entry->size, (t2-t1));
 
 		enq(freeQ, entry);
 		entry = deq(writeQ);
