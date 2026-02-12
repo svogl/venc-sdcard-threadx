@@ -46,7 +46,7 @@
 
 #define FRAMERATE 15
 /* number of frames to film and encode */
-#define VIDEO_FRAME_NB 37
+#define VIDEO_FRAME_NB 100
 #define USE_SD_AS_OUTPUT 1
 
 /* Private macro -------------------------------------------------------------*/
@@ -89,7 +89,7 @@ uint8_t tx_main_heap[4096];
 TX_BYTE_POOL byte_pool;
 TX_THREAD main_thread;
 
-#define THREAD_STACK_SIZE 4000
+#define THREAD_STACK_SIZE 8000
 TX_BYTE_POOL byte_pool_w;
 uint8_t tx_write_heap[4096];
 uint8_t write_thread_stack[THREAD_STACK_SIZE];
@@ -107,8 +107,8 @@ static int frame_nb = 0;
 //////////////////////////
 //////////////////////////
 
-#define NUM_BUFS 4
-#define BUF_SIZE (160*1024)
+#define NUM_BUFS 6
+#define BUF_SIZE (128*1024)
 
 // static memory block that is used for buffers
 //__attribute__ ((section (".psram_bss")))
@@ -123,8 +123,7 @@ int32_t out_buffers_len[NUM_BUFS] = {0, };
 
 // pre-allocated list of queue entries; initialized in initq
 struct qentry raw_entries[NUM_BUFS] = {
-		{ 0, -1, out_buffers[0], NULL},
-		{ 1, -1, out_buffers[1], NULL},
+		{ NULL, },
 };
 
 // the queues use a dummy element.
@@ -136,7 +135,9 @@ struct qentry* writeQ = &writeQhead;
 
 int initq() {
 	for (int i=0;i<NUM_BUFS; i++) {
+		raw_entries[i].next = NULL;
 		raw_entries[i].idx = i;
+		raw_entries[i].data_len = BUF_SIZE;
 		raw_entries[i].size = -1;
 		raw_entries[i].data = out_buffers[i];
 
@@ -253,9 +254,9 @@ int main(void)
   MPU_Config();
 
   /* Enable DCache */
-  SCB_EnableDCache();
+//  SCB_EnableDCache();
   /* Enable ICache */
-  SCB_EnableICache();
+//  SCB_EnableICache();
 
   SystemCoreClockUpdate();
 
@@ -348,6 +349,8 @@ void write_thread_func(ULONG arg){
 		}
 	}
 }
+
+int lcd_enabled = 0;
 
 void main_thread_func(ULONG arg){
   __HAL_RCC_SYSCFG_CLK_ENABLE();
@@ -445,12 +448,14 @@ void main_thread_func(ULONG arg){
   }
 
   /* Initialize LCD */
-  int err = BSP_LCD_InitEx(0, LCD_ORIENTATION_LANDSCAPE, LCD_PIXEL_FORMAT_RGB565, LCD_DEFAULT_WIDTH, LCD_DEFAULT_HEIGHT);
-  if(err){
-    TRACE_MAIN("error initializing LCD : %d\n", err);
-    Error_Handler();
+  if (lcd_enabled) {
+	  int err = BSP_LCD_InitEx(0, LCD_ORIENTATION_LANDSCAPE, LCD_PIXEL_FORMAT_RGB565, LCD_DEFAULT_WIDTH, LCD_DEFAULT_HEIGHT);
+	  if(err){
+		TRACE_MAIN("error initializing LCD : %d\n", err);
+		Error_Handler();
+	  }
+	  BSP_LCD_SetLayerAddress(0, 0, 0x34050000);
   }
-  BSP_LCD_SetLayerAddress(0, 0, 0x34050000);
 
   /* initialize VENC */
   LL_VENC_Init();
@@ -464,60 +469,60 @@ void main_thread_func(ULONG arg){
   ULONG s_msg = DATA_AVAILABLE;
   while (1) {
 
-//
-//		if(buf_index_changed){
-//		  /* new frame available */
-//		  buf_index_changed = 0;
-//		} else {
-//			tx_thread_sleep(1);
-//			continue;
-//		}
+	  //
+	  //		if(buf_index_changed){
+	  //		  /* new frame available */
+	  //		  buf_index_changed = 0;
+	  //		} else {
+	  //			tx_thread_sleep(1);
+	  //			continue;
+	  //		}
 
 
-		while (frame_nb < VIDEO_FRAME_NB) {
+	  while (frame_nb < VIDEO_FRAME_NB) {
 		  if (state == FILE_OPENED && myState != FILE_OPENED) {
-				  // file opened -> init encoder
-				  printf("STARTING ENCODER \r\n");
-				  // todo: start encoding on sensor event.
+			  // file opened -> init encoder
+			  printf("STARTING ENCODER \r\n");
+			  // todo: start encoding on sensor event.
 
-				  /* initialize encoder software for camera feed encoding */
-				  encoder_prepare(800,600,(uint32_t*)0x3413A600);
+			  /* initialize encoder software for camera feed encoding */
+			  encoder_prepare(800,600,(uint32_t*)0x3413A600);
 
-				  myState = FILE_OPENED;
+			  myState = FILE_OPENED;
+		  }
+
+
+		  if(buf_index_changed){
+			  /* new frame available */
+			  buf_index_changed = 0;
+
+			  printf("c %d\r\n", cam_frame_counter );
+			  if(BSP_CAMERA_BackgroundProcess() != BSP_ERROR_NONE)
+			  {
+				  Error_Handler();
 			  }
 
+			  if (myState == FILE_OPENED) {
+				  struct qentry* ent = deq(freeQ);
 
-		if(buf_index_changed){
-		  /* new frame available */
-		  buf_index_changed = 0;
+				  if (!ent) {
+					  // no free buffers available - silently fail over
+					  // and wait for the next frame.
+				  } else {
 
+					  int ret = Encode_frame(ent);
+					  frame_nb++;
+					  if (ret < 0) {
+						  break;
+					  }
 
-		if(BSP_CAMERA_BackgroundProcess() != BSP_ERROR_NONE)
-		{
-		  Error_Handler();
-		}
+					  //				  TRACE_MAIN("ENQ writeQ %d - %d i %d s %d\r\n", frame_nb, cam_frame_counter, ent->idx, ent->size);
 
-		  if (myState == FILE_OPENED) {
-			  struct qentry* ent = deq(freeQ);
-
-			  if (!ent) {
-				  // no free buffers available - silently fail over
-				  // and wait for the next frame.
-			  } else {
-
-				  int ret = Encode_frame(ent);
-				  frame_nb++;
-				  if (ret < 0) {
-					  break;
+					  enq(writeQ, ent);
+					  notify_data_available();
 				  }
-
-				  TRACE_MAIN("ENQ writeQ %d - %d i %d s %d\r\n", frame_nb, cam_frame_counter, ent->idx, ent->size);
-
-				  enq(writeQ, ent);
-				  notify_data_available();
 			  }
 		  }
-		}
 	  }
 	  if (frame_nb == VIDEO_FRAME_NB) {
 
@@ -706,11 +711,11 @@ static int Encode_frame(struct qentry* ent){
   }
   printf("enc p %d -> %d %d\r\n", ent->idx, frame_nb, cam_frame_counter);
 
-  print_timer(img_addr);
+//  print_timer(img_addr);
 
   encIn.pOutBuf = ent->data;
   encIn.busOutBuf = (uint32_t) ent->data;
-  encIn.outBufSize = BUF_SIZE;
+  encIn.outBufSize = ent->size;
 
   if (! (frame_nb & 0x07) || frame_nb ==0 )
   {
@@ -928,8 +933,12 @@ void BSP_CAMERA_FrameEventCallback(uint32_t instance)
   /* swap buffers and signal new frame*/
   img_addr = DCMIPP->P1STM0AR;
   cam_frame_counter++;
-  BSP_LCD_SetLayerAddress(0, 0, img_addr);
-  BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
+
+  if (lcd_enabled) {
+	  BSP_LCD_SetLayerAddress(0, 0, img_addr);
+	  BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
+  }
+
   buf_index_changed = 1;
 }
 

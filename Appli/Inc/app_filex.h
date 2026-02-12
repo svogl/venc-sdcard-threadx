@@ -48,10 +48,11 @@ extern "C" {
 
 /** queue entry struct. */
 struct qentry {
-	int32_t idx; // buffer array index; int8 would be ok, but this will be 32-bit aligned anyway
-	int32_t size;
-	uint8_t* data;
 	struct qentry* next; // points to next or NULL at end.
+	int32_t idx; // buffer array index; int8 would be ok, but this will be 32-bit aligned anyway
+	int32_t size; /// number of bytes of data that are in use
+	int32_t data_len; /// size of the data buffer
+	uint8_t* data; /// pointer to the actual buffer data
 };
 
 /// check if q has data elements
