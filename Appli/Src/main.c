@@ -287,8 +287,8 @@ int main(void)
   }
 #endif
 
-  BSP_PB_Init(BUTTON_USER1, BUTTON_MODE_EXTI);
-  BSP_PB_Init(BUTTON_TAMP, BUTTON_MODE_EXTI);
+  BSP_PB_Init(BUTTON_USER1, BUTTON_MODE_GPIO);
+  BSP_PB_Init(BUTTON_TAMP, BUTTON_MODE_GPIO);
 
   printf("---------------- BOOT\r\n");
 
@@ -536,7 +536,7 @@ void main_thread_func(ULONG arg){
 					  notify_data_available();
 				  }
 			  } else {
-				  printf("c %lu\r\n", cam_frame_counter );
+//				  printf("c %lu\r\n", cam_frame_counter );
 			  }
 		  } else {
 			tx_thread_sleep(1);
@@ -558,8 +558,9 @@ void main_thread_func(ULONG arg){
 
 		  int bu= BSP_PB_GetState(BUTTON_USER1);
 		  int bt = BSP_PB_GetState(BUTTON_TAMP);
+		  int sd = BSP_SD_IsDetected(0);
 
-		  printf("c %lu bu %d bt %d \r\n", cam_frame_counter , bu, bt );
+		  printf("c %lu bu %d bt %d sd %d \r\n", cam_frame_counter , bu, bt , sd);
 
 	  }
 	  BSP_LED_Off(LED1);

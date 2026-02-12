@@ -42,17 +42,12 @@
 #define FX_APP_THREAD_PRIO 10
 
 /* USER CODE BEGIN PD */
-#define DEFAULT_QUEUE_LENGTH 1280
+#define DEFAULT_QUEUE_LENGTH 16
+
 #define SD_DETECT_Pin GPIO_PIN_12
 #define SD_DETECT_GPIO_Port GPION
 #define SD_DETECT_EXTI_IRQn EXTI12_IRQn
 
-//typedef enum {
-//	NO_CARD = 0,
-//	CARD_INSERTED,
-//	FILE_OPENED
-//} FxThreadState;
-//
 
 /* USER CODE END PD */
 
@@ -102,38 +97,42 @@ TX_MUTEX f_mutex;
 typedef struct  {
 	uint32_t start; // pointer to start of buffer
 	uint32_t end; // pointer to end of buffer
-	uint32_t empty[2];// align next to 16b
 	uint8_t data[FIFO_SIZE];
 } fifo_buf;
 
 __attribute__ ((section (".psram_bss"))) // keep in psram
 //__attribute__((section(".noncacheable")))
 __attribute__ ((aligned (32)))
-fifo_buf sd_fifo = { 0,0, {0,0}, ""};
+fifo_buf sd_fifo = { 0,0, ""};
 
 
-static int fifo_clear(fifo_buf* fifo) {
+static int fifo_clear(fifo_buf* fifo)
+{
 	fifo->start = 0;
 	fifo->end = 0;
-	fifo->empty[0] = 0xcafebabe;
-	fifo->empty[0] = 0xdeadbeef;
 	fifo->data[0] = 0;
 	return 0;
 }
 
-static int fifo_contains(const fifo_buf* fifo ) {
+static int fifo_contains(const fifo_buf* fifo )
+{
 	if (fifo->end < fifo->start) {
-		printf("ERROR! BUFFFER BUG s=%d e=%d \r\n",fifo->start, fifo->end);
+		printf("ERROR! BUFFER BUG s=%lu e=%lu \r\n",fifo->start, fifo->end);
 		return 0;
 	}
-//	printf("avail %d\r\n", fifo->end - fifo->start);
 	return fifo->end - fifo->start ;
 }
-static int fifo_available(const fifo_buf* fifo ) { return FIFO_SIZE - fifo->end	; }
 
-int fifo_enq(fifo_buf* fifo, uint8_t* data, int size) {
+static int fifo_available(const fifo_buf* fifo )
+{
+	return FIFO_SIZE - fifo->end	;
+}
+
+
+int fifo_enq(fifo_buf* fifo, uint8_t* data, int size)
+{
 	if (fifo->end + size > FIFO_SIZE) { // buffer full
-		printf("ERROR! BUFFFER FULLLL e=%d s=%d \r\n",fifo->end, size);
+		printf("ERROR! BUFFER FULLLL e=%lu s=%d \r\n",fifo->end, size);
 		return -1;
 	}
 	// enqueue data into fifo:
@@ -188,8 +187,6 @@ UINT VENC_FileX_Init(void) {
 
   /* USER CODE BEGIN MX_FileX_Init */
 
-  // HW init
-
 
   /* Create the message queue */
   ret = tx_queue_create(&tx_msg_queue, "sd_event_queue", 1, (VOID *)queue_buf,
@@ -211,8 +208,6 @@ UINT VENC_FileX_Init(void) {
   }
 
   /* USER CODE END MX_FileX_Init */
-//	printf("VENC_INIT SD %d\r\n", 0);
-//	BSP_SD_Init(0);
 
   /* USER CODE BEGIN MX_FileX_Init 1*/
 
@@ -225,9 +220,6 @@ UINT VENC_FileX_Init(void) {
 			  8,  // preempt threshold
 			  TX_APP_THREAD_TIME_SLICE,
 			  TX_AUTO_START);
-
-//			FX_APP_THREAD_PRIO, FX_APP_PREEMPTION_THRESHOLD,
-//			FX_APP_THREAD_TIME_SLICE, FX_APP_THREAD_AUTO_START);
 
   /* Check main thread creation */
   if (ret != FX_SUCCESS) {
@@ -258,7 +250,21 @@ void notify_close(){
 	tx_queue_send(&tx_msg_queue, &s_msg, TX_NO_WAIT);
 }
 
+void init_detect_pin()
+{
+	  GPIO_InitTypeDef gpio_init_structure;
 
+    /* GPIO Detect pin configuration */
+    SD_DETECT_GPIO_CLK_ENABLE();
+
+    /* Configure Interrupt mode for SD detection pin */
+    gpio_init_structure.Pin     = SD_DETECT_PIN;
+    gpio_init_structure.Pull    = GPIO_NOPULL;
+    gpio_init_structure.Speed   = GPIO_SPEED_FREQ_HIGH;
+    gpio_init_structure.Mode    = GPIO_MODE_INPUT;
+    HAL_GPIO_Init(SD_DETECT_GPIO_PORT, &gpio_init_structure);
+
+}
 
 void fx_app_thread_func(ULONG thread_input) {
   UINT sd_status = FX_SUCCESS;
@@ -267,6 +273,8 @@ void fx_app_thread_func(ULONG thread_input) {
 
   char fname[64];
   int iter=100;
+
+  init_detect_pin();
 
   if (SD_IsDetected(FX_STM32_SD_INSTANCE) == HAL_OK) {
     /* SD card is already inserted, place the info into the queue */
@@ -447,6 +455,7 @@ static int state_open_card()
   return FX_SUCCESS;
 }
 
+// filex callback; use for debugging write finished events.
 static void state_write_notify(struct FX_FILE_STRUCT *file) {
 //	printf("WROTE to %s\r\n", file->fx_file_name);
 }
@@ -506,19 +515,19 @@ static int state_close_sdcard()
 
 
 /// flush fifo contents to sd card, move rest to front, reset counters.
-int fifo_drain(FX_FILE* file, fifo_buf* fifo) {
+int fifo_drain(FX_FILE* file, fifo_buf* fifo)
+{
 	int count = fifo_contains(fifo);
 	int blocks = count	/BLOCK_SIZE;
 	int write_size = blocks * BLOCK_SIZE;
 
 	// write n full blocks to disk
 //	uint32_t t1 = HAL_GetTick();
-
 //	printf("FIF> %ld %d\r\n", fifo->start, write_size);
 
 	int status = fx_file_write(file, &fifo->data[fifo->start], write_size);
 
-	//	uint32_t t2 = HAL_GetTick();
+//	uint32_t t2 = HAL_GetTick();
 //	printf("FIF< %ld %d td %ld\r\n", fifo->start, write_size, (t2-t1));
 
 	// TODO: abort on error
@@ -677,7 +686,7 @@ UINT VENC_FileX_close(void)
  */
 static UINT SD_IsDetected(uint32_t Instance) {
   UINT ret;
-//  return BSP_SD_IsDetected(Instance) ? HAL_OK : HAL_ERROR;
+  return BSP_SD_IsDetected(Instance) ? HAL_OK : HAL_ERROR;
 
   if (Instance >= 1) {
     ret = HAL_ERROR;
