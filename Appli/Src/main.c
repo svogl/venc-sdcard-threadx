@@ -44,7 +44,7 @@
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 
-#define FRAMERATE 15
+#define FRAMERATE 25
 /* number of frames to film and encode */
 #define VIDEO_FRAME_NB 100
 #define USE_SD_AS_OUTPUT 1
@@ -71,7 +71,7 @@ H264EncConfig cfg= {0};
 uint32_t output_size = 0;
 uint32_t img_addr = 0;
 
-volatile uint32_t cam_frame_counter = 0;
+volatile int32_t cam_frame_counter = 0;
 
 EWLLinearMem_t outbuf;
 
@@ -107,8 +107,8 @@ static int frame_nb = 0;
 //////////////////////////
 //////////////////////////
 
-#define NUM_BUFS 6
-#define BUF_SIZE (128*1024)
+#define NUM_BUFS 3
+#define BUF_SIZE (160*1024)
 
 // static memory block that is used for buffers
 //__attribute__ ((section (".psram_bss")))
@@ -286,9 +286,30 @@ int main(void)
     Error_Handler();
   }
 #endif
+
+  BSP_PB_Init(BUTTON_USER1, BUTTON_MODE_EXTI);
+  BSP_PB_Init(BUTTON_TAMP, BUTTON_MODE_EXTI);
+
   printf("---------------- BOOT\r\n");
 
   tx_kernel_enter();
+}
+
+void BSP_PB_Callback (Button_TypeDef Button)
+{
+	int state = -1;
+
+	switch (Button) {
+	case BUTTON_USER1:
+		state = BSP_PB_GetState(Button);
+		break;
+	case BUTTON_TAMP:
+		state = BSP_PB_GetState(Button);
+		break;
+	default:
+		break;
+	}
+	printf("BTN CB for %d s= %d\r\n", Button, state);
 }
 
 /**
@@ -467,17 +488,10 @@ void main_thread_func(ULONG arg){
 
   FxThreadState myState = NO_CARD;
   ULONG s_msg = DATA_AVAILABLE;
+  int32_t then = HAL_GetTick();
+
   while (1) {
-
-	  //
-	  //		if(buf_index_changed){
-	  //		  /* new frame available */
-	  //		  buf_index_changed = 0;
-	  //		} else {
-	  //			tx_thread_sleep(1);
-	  //			continue;
-	  //		}
-
+	  // TODO: introduce proper state handling.
 
 	  while (frame_nb < VIDEO_FRAME_NB) {
 		  if (state == FILE_OPENED && myState != FILE_OPENED) {
@@ -496,7 +510,6 @@ void main_thread_func(ULONG arg){
 			  /* new frame available */
 			  buf_index_changed = 0;
 
-			  printf("c %d\r\n", cam_frame_counter );
 			  if(BSP_CAMERA_BackgroundProcess() != BSP_ERROR_NONE)
 			  {
 				  Error_Handler();
@@ -513,26 +526,42 @@ void main_thread_func(ULONG arg){
 					  int ret = Encode_frame(ent);
 					  frame_nb++;
 					  if (ret < 0) {
+						  printf("ENC ERROR. %d STOP.\r\n\r\n", ret);
 						  break;
 					  }
 
-					  //				  TRACE_MAIN("ENQ writeQ %d - %d i %d s %d\r\n", frame_nb, cam_frame_counter, ent->idx, ent->size);
+					  TRACE_MAIN("ENQ writeQ %d - %d i %d s %d\r\n", frame_nb, ent->fc, ent->idx, ent->size);
 
 					  enq(writeQ, ent);
 					  notify_data_available();
 				  }
+			  } else {
+				  printf("c %lu\r\n", cam_frame_counter );
 			  }
+		  } else {
+			tx_thread_sleep(1);
 		  }
+
 	  }
 	  if (frame_nb == VIDEO_FRAME_NB) {
 
 		  /* after encoding a certain nb of frames, close file & flush buffers */
 		  encoder_end();
 		  flush_out_buffer();
+		  myState = NO_CARD;
 		  frame_nb++;
 	  }
+	  int32_t now = HAL_GetTick();
+	  if (now - then > 500) { // 2 times a sec, check the gpios
+		  //
+		  then = now;
 
-	  myState = NO_CARD;
+		  int bu= BSP_PB_GetState(BUTTON_USER1);
+		  int bt = BSP_PB_GetState(BUTTON_TAMP);
+
+		  printf("c %lu bu %d bt %d \r\n", cam_frame_counter , bu, bt );
+
+	  }
 	  BSP_LED_Off(LED1);
 	  BSP_LED_Off(LED2);
   }
@@ -709,13 +738,16 @@ static int Encode_frame(struct qentry* ent){
     TRACE_MAIN("Error : NULL image address");
     return -1;
   }
-  printf("enc p %d -> %d %d\r\n", ent->idx, frame_nb, cam_frame_counter);
+  ent->fc = cam_frame_counter;
+  ent->ts = HAL_GetTick();
+
+//  printf("enc p %d -> %d %d\r\n", ent->idx, frame_nb, cam_frame_counter);
 
 //  print_timer(img_addr);
 
   encIn.pOutBuf = ent->data;
   encIn.busOutBuf = (uint32_t) ent->data;
-  encIn.outBufSize = ent->size;
+  encIn.outBufSize = ent->data_len;
 
   if (! (frame_nb & 0x07) || frame_nb ==0 )
   {
@@ -736,26 +768,30 @@ static int Encode_frame(struct qentry* ent){
   ret = H264EncStrmEncode(encoder, &encIn, &encOut, NULL, NULL, NULL);
 
   ent->size = encOut.streamSize;
+
+//  printf("ENCed %d %d %d\r\n", ret, encIn.codingType, encOut.streamSize);
+
   switch (ret)
   {
   case H264ENC_FRAME_READY:
 	  // the actual write operation is performed by the filex thread
-    /*save stream */
-//    if (save_stream(output_size, ent->data,  ent->size))
-//    {
-//      TRACE_MAIN("error saving stream frame %d\n", frame_nb);
-//      return -1;
-//    }
+    /*save stream - done outside by queueing... */
     output_size += encOut.streamSize;
     break;
+  case H264ENC_INVALID_ARGUMENT:
+      TRACE_MAIN("invalid argument!\r\n");
+	  break;
+  case H264ENC_OUTPUT_BUFFER_OVERFLOW:
+      TRACE_MAIN("output buffer overflow!\r\n");
+	  break;
   case H264ENC_SYSTEM_ERROR:
-    TRACE_MAIN("fatal error while encoding\n");
+    TRACE_MAIN("fatal error while encoding\r\n");
     break;
   default:
     TRACE_MAIN("error encoding frame %d : %d\n", frame_nb, ret);
     break;
   }
-  return 0;
+  return ret;
 }
 
 
@@ -930,6 +966,7 @@ static void SystemClock_Config(void)
 
 void BSP_CAMERA_FrameEventCallback(uint32_t instance)
 {
+  UNUSED(instance);
   /* swap buffers and signal new frame*/
   img_addr = DCMIPP->P1STM0AR;
   cam_frame_counter++;
@@ -1010,7 +1047,7 @@ static void MPU_Config(void)
 void EWLPoolChoiceCb(u8 **pool_ptr, size_t *size)
 {
   *pool_ptr = ewl_pool;
-  *size = 1640000;
+  *size = sizeof(ewl_pool);
 }
 
 void EWLPoolReleaseCb(u8 **pool_ptr)
@@ -1029,7 +1066,7 @@ void EWLPoolReleaseCb(u8 **pool_ptr)
 */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-  TRACE_MAIN("assert failed at line %d of file %s\n", line, file);
+  TRACE_MAIN("assert failed at line %lu of file %s\n", line, file);
   /* Infinite loop */
   while (1)
   {

@@ -52,6 +52,8 @@ struct qentry {
 	int32_t idx; // buffer array index; int8 would be ok, but this will be 32-bit aligned anyway
 	int32_t size; /// number of bytes of data that are in use
 	int32_t data_len; /// size of the data buffer
+	int32_t fc; /// frame counter
+	int32_t ts; /// timestamp (haltick of arrival)
 	uint8_t* data; /// pointer to the actual buffer data
 };
 

@@ -62,6 +62,7 @@ INT fx_stm32_sd_init(UINT instance)
 
   HAL_SD_MspInit(hsd);
 
+  printf("FXG INIT SD1 %d\r\n", instance);
 
 #if (USE_SD_TRANSCEIVER != 0U)
   // there are no definitions for HAL_SD_RegisterCallback, so set the function directly:
@@ -163,7 +164,7 @@ INT fx_stm32_sd_read_blocks(UINT instance, UINT *buffer, UINT start_block, UINT 
     ret = 1;
   }
 #else
-  if (BSP_SD_ReadBlocks_DMA( instance, buffer, start_block, total_blocks)!= BSP_ERROR_NONE)
+  if (BSP_SD_ReadBlocks_DMA( instance, (uint32_t*)buffer, start_block, total_blocks)!= BSP_ERROR_NONE)
   {
     ret = 1;
   }
@@ -197,11 +198,12 @@ INT fx_stm32_sd_write_blocks(UINT instance, UINT *buffer, UINT start_block, UINT
     ret = 1;
   }
 #else
-//  printf("wb %d @ %d\r\n", total_blocks, start_block);
-    if (BSP_SD_WriteBlocks_DMA( instance, buffer, start_block, total_blocks)!= BSP_ERROR_NONE)
+//  return 0;
+    if (BSP_SD_WriteBlocks_DMA( instance, (uint32_t*)buffer, start_block, total_blocks)!= BSP_ERROR_NONE)
     {
       ret = 1;
     }
+//    printf("wb %d l %d\r\n", start_block, total_blocks );
 #endif
 
   /* USER CODE BEGIN POST_WRITE_BLOCKS */
