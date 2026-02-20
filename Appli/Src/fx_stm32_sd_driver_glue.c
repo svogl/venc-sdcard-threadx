@@ -57,12 +57,12 @@ INT fx_stm32_sd_init(UINT instance)
   {
     Error_Handler();
   }
-#else
   SD_HandleTypeDef* hsd = &hsd_sdmmc[instance];
 
   HAL_SD_MspInit(hsd);
 
   printf("FXG INIT SD1 %d\r\n", instance);
+#else
 
 #if (USE_SD_TRANSCEIVER != 0U)
   // there are no definitions for HAL_SD_RegisterCallback, so set the function directly:
