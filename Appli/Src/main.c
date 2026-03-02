@@ -746,7 +746,7 @@ static int Encode_frame(struct qentry* ent){
 
 //  print_timer(img_addr);
 
-  encIn.pOutBuf = ent->data;
+  encIn.pOutBuf = (u32*)ent->data;
   encIn.busOutBuf = (uint32_t) ent->data;
   encIn.outBufSize = ent->data_len;
 

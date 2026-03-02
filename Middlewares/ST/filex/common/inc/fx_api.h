@@ -106,6 +106,7 @@ extern   "C" {
 
 #endif
 
+#define FX_ENABLE_EXFAT 1
 
 /* Disable warning of parameter not used. */
 #ifndef FX_PARAMETER_NOT_USED

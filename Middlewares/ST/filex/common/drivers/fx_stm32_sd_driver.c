@@ -9,6 +9,7 @@
 /*      Partial Copyright (c) STMicroelctronics 2020. All rights reserved */
 /**************************************************************************/
 
+#include <stdio.h>
 
 /* Include necessary system files.  */
 #include "fx_stm32_sd_driver.h"
