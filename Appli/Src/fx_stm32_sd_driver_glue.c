@@ -385,7 +385,7 @@ void BSP_SD_ReadCpltCallback(uint32_t instance)
 void HAL_SD_DriveTransceiver_1_8V_Callback(FlagStatus status)
 {
 	//  analog switch NXP NX3L1T3157; SEL pin: input 0 (sel low): VDD_SD, input 1(sel hi): 1v8
-printf("1V8 CB: %d\r\n", status);
+//	printf("1V8 CB: %d\r\n", status);
 	if (status == RESET) {
 		HAL_GPIO_WritePin(GPIOO, GPIO_PIN_5, GPIO_PIN_RESET );
 	} else {
