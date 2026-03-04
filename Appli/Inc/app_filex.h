@@ -39,7 +39,6 @@ extern "C" {
 /* USER CODE BEGIN ET */
 
 
-
 //////////////////////////
 //////////////////////////
 ////////////////////////// 2 Q or not 2 Q... API:
@@ -80,6 +79,8 @@ typedef enum {
 	OPEN_FILE = 5, /* open file */
 	CLOSE_FILE = 7, /* close file, re-open... */
 	CARD_STATUS_CHANGED = 9, /* card pulled or inserted -> detect pin irq*/
+	MOUNT_CARD = 11, /* simulate card detect irq - mount */
+	UMOUNT_CARD, /* simulate card detect irq - unmount*/
 } FXMessageType;
 
 
@@ -93,7 +94,16 @@ extern FxThreadState state;
 
 extern void notify_data_available();
 
+// mount sdcard
+void notify_mount();
+// unmount sdcard
+void notify_umount();
+
+// open next file
+extern void notify_open();
+// close file
 extern void notify_close();
+
 
 //////////////////////////
 //////////////////////////
@@ -101,6 +111,8 @@ extern void notify_close();
 //////////////////////////
 //////////////////////////
 
+extern UINT SD_IsDetected(uint32_t Instance);
+extern void init_detect_pin();
 
 
 /* USER CODE END ET */

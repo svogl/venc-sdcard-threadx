@@ -153,7 +153,8 @@ int fifo_enq(fifo_buf* fifo, uint8_t* data, int size)
 void fx_app_thread_func(ULONG thread_input);
 
 /* USER CODE BEGIN PFP */
-static UINT SD_IsDetected(uint32_t Instance);
+//static UINT SD_IsDetected(uint32_t Instance);
+
 static VOID media_close_callback(FX_MEDIA *media_ptr);
 
 
@@ -250,9 +251,24 @@ void notify_close(){
 	tx_queue_send(&tx_msg_queue, &s_msg, TX_NO_WAIT);
 }
 
+void notify_open(){
+	s_msg = OPEN_FILE;
+	tx_queue_send(&tx_msg_queue, &s_msg, TX_NO_WAIT);
+}
+
+void notify_mount(){
+	s_msg = MOUNT_CARD;
+	tx_queue_send(&tx_msg_queue, &s_msg, TX_NO_WAIT);
+}
+
+void notify_umount(){
+	s_msg = UMOUNT_CARD;
+	tx_queue_send(&tx_msg_queue, &s_msg, TX_NO_WAIT);
+}
+
 void init_detect_pin()
 {
-	  GPIO_InitTypeDef gpio_init_structure;
+	GPIO_InitTypeDef gpio_init_structure;
 
     /* GPIO Detect pin configuration */
     SD_DETECT_GPIO_CLK_ENABLE();
@@ -262,8 +278,18 @@ void init_detect_pin()
     gpio_init_structure.Pull    = GPIO_NOPULL;
     gpio_init_structure.Speed   = GPIO_SPEED_FREQ_HIGH;
     gpio_init_structure.Mode    = GPIO_MODE_INPUT;
+
     HAL_GPIO_Init(SD_DETECT_GPIO_PORT, &gpio_init_structure);
 
+    // AND init the 1v8 switch pin ( PO5) :
+    __HAL_RCC_GPIOO_CLK_ENABLE();
+
+    gpio_init_structure.Pin     = GPIO_PIN_5;
+    gpio_init_structure.Pull    = GPIO_NOPULL;
+    gpio_init_structure.Speed   = GPIO_SPEED_FREQ_HIGH;
+    gpio_init_structure.Mode    = GPIO_MODE_OUTPUT_PP;
+
+    HAL_GPIO_Init(GPIOO, &gpio_init_structure);
 }
 
 void fx_app_thread_func(ULONG thread_input) {
@@ -274,7 +300,20 @@ void fx_app_thread_func(ULONG thread_input) {
   char fname[64];
   int iter=100;
 
+
   init_detect_pin();
+
+  HAL_SD_DriveTransceiver_1_8V_Callback(0);
+
+  int det = SD_IsDetected(FX_STM32_SD_INSTANCE);
+  printf("DET %d\r\n", det);
+
+
+  // SEL pin: input 0 (sel low): VDD_SD / 3v3, input 1(sel hi): 1v8
+  HAL_SD_DriveTransceiver_1_8V_Callback(1);
+
+  det = SD_IsDetected(FX_STM32_SD_INSTANCE);
+  printf("DET %d\r\n", det);
 
   if (SD_IsDetected(FX_STM32_SD_INSTANCE) == HAL_OK) {
     /* SD card is already inserted, place the info into the queue */
@@ -372,8 +411,37 @@ void fx_app_thread_func(ULONG thread_input) {
 			  BSP_LED_On(LED_RED);
     	  }
     	  break;
+      case OPEN_FILE:
+    	  if (state == NO_CARD) {
+    	  } else if (state == CARD_INSERTED) {
+			  snprintf(fname, sizeof(fname), "vid-%03d.mp4", iter++);
+
+    		  ret = state_open_file(fname);
+    		  if (ret == FX_SUCCESS) {
+                  printf("TDX STAT fopen! %d %s\r\n", ret, fname);
+    			  state = FILE_OPENED;
+    		  } else {
+    			  printf("FAILED TO OPEN FILE %s\r\n",fname);
+    		  }
+    	  } else {
+    		  printf("OPEN_FILE? no idea\r\n");
+    	  }
+    	  break;
       case CLOSE_FILE:
     	  VENC_FileX_close();
+    	  break;
+      case MOUNT_CARD:
+		  printf("CARD INSERT...\r\n");
+		  ret = state_open_card();
+		  if (ret == FX_SUCCESS) {
+			  state = CARD_INSERTED;
+			  printf("CARD INSERTED\r\n");
+		  }
+    	  break;
+      case UMOUNT_CARD:
+		  printf("CARD EJECT...\r\n");
+    	  state_close_sdcard();
+    	  state = NO_CARD;
     	  break;
       default:
     	  printf("FIXME! UNKNOWN MSG %u\r\n", r_msg);
@@ -454,6 +522,8 @@ static int state_open_card()
   printf("COPENED\r\n");
   return FX_SUCCESS;
 }
+
+
 
 // filex callback; use for debugging write finished events.
 static void state_write_notify(struct FX_FILE_STRUCT *file) {
@@ -684,9 +754,9 @@ UINT VENC_FileX_close(void)
  * @param Instance  SD Instance
  * @retval Returns if SD is detected or not
  */
-static UINT SD_IsDetected(uint32_t Instance) {
+UINT SD_IsDetected(uint32_t Instance) {
   UINT ret;
-  return BSP_SD_IsDetected(Instance) ? HAL_OK : HAL_ERROR;
+//  return BSP_SD_IsDetected(Instance) ? HAL_OK : HAL_ERROR;
 
   if (Instance >= 1) {
     ret = HAL_ERROR;

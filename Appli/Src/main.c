@@ -99,7 +99,7 @@ TX_THREAD write_thread;
 //__attribute__ ((aligned (32)))
 //uint32_t output_buffer[800*600/8];// __NON_CACHEABLE;
 
-static int frame_nb = 0;
+static int frame_nb = VIDEO_FRAME_NB;
 
 //////////////////////////
 //////////////////////////
@@ -242,6 +242,9 @@ int flush_out_buffer(void){
 #endif
 }
 
+int det = 0xface;
+int userBState = 0;
+int tampBState = 0;
 
 /**
 * @brief  Main program
@@ -258,10 +261,14 @@ int main(void)
   /* Enable ICache */
 //  SCB_EnableICache();
 
-  SystemCoreClockUpdate();
+//  SystemCoreClockUpdate();
 
   /* Initialize the HAL timebase (eg. SysTick) */
   HAL_Init();
+
+  init_detect_pin();
+
+  det = SD_IsDetected(0);
 
   /* oscillator and PLL already configured. Configure periph clocks */
   SystemClock_Config();
@@ -290,7 +297,10 @@ int main(void)
   BSP_PB_Init(BUTTON_USER1, BUTTON_MODE_GPIO);
   BSP_PB_Init(BUTTON_TAMP, BUTTON_MODE_GPIO);
 
-  printf("---------------- BOOT\r\n");
+  det = SD_IsDetected(0);
+
+
+  printf("---------------- BOOT %d\r\n",det);
 
   tx_kernel_enter();
 }
@@ -371,6 +381,15 @@ void write_thread_func(ULONG arg){
 	}
 }
 
+/// state handling - check inputs, trigger recording
+int32_t then = 0;
+int32_t thenD = 0;
+static void handleInteraction();
+
+FxThreadState myState = NO_CARD;
+
+
+/// set to 1 to switch on LCD subsys
 int lcd_enabled = 0;
 
 void main_thread_func(ULONG arg){
@@ -403,7 +422,7 @@ void main_thread_func(ULONG arg){
   TRACE_MAIN("pclk5 frequency  : %lu\n", HAL_RCC_GetPCLK5Freq() / 1000000);
 
 
-  { // lcd util stuff
+  if (lcd_enabled) { // lcd util stuff
 //	  BSP_LCD_LayerConfig_t LayerConfig = {0};
 //	  /* Preview layer Init */
 //	  LayerConfig.X0          = 0;
@@ -482,13 +501,13 @@ void main_thread_func(ULONG arg){
   LL_VENC_Init();
 
   /* initialization done. Turn on the LEDs */
-  BSP_LED_On(LED1);
-  BSP_LED_On(LED2);
+//  BSP_LED_On(LED1);
+//  BSP_LED_On(LED2);
+//  BSP_LED_Off(LED1);
+//  BSP_LED_Off(LED2);
 
 
-  FxThreadState myState = NO_CARD;
   ULONG s_msg = DATA_AVAILABLE;
-  int32_t then = HAL_GetTick();
 
   while (1) {
 	  // TODO: introduce proper state handling.
@@ -543,34 +562,88 @@ void main_thread_func(ULONG arg){
 		  }
 
 	  }
+
+	  handleInteraction();
+
 	  if (frame_nb == VIDEO_FRAME_NB) {
 
 		  /* after encoding a certain nb of frames, close file & flush buffers */
 		  encoder_end();
 		  flush_out_buffer();
-		  myState = NO_CARD;
+		  myState = CARD_INSERTED;
 		  frame_nb++;
 	  }
-	  int32_t now = HAL_GetTick();
-	  if (now - then > 500) { // 2 times a sec, check the gpios
-		  //
-		  then = now;
 
-		  int bu= BSP_PB_GetState(BUTTON_USER1);
-		  int bt = BSP_PB_GetState(BUTTON_TAMP);
-		  int sd = BSP_SD_IsDetected(0);
 
-		  printf("c %lu bu %d bt %d sd %d \r\n", cam_frame_counter , bu, bt , sd);
-
-	  }
-	  BSP_LED_Off(LED1);
-	  BSP_LED_Off(LED2);
+//	  BSP_LED_Off(LED1);
+//	  BSP_LED_Off(LED2);
   }
 
 
   /* program ended */
   while(1);
 }
+
+
+static void handleInteraction()
+{
+	int32_t now = HAL_GetTick();
+	if (now - then > 100) { // 2 times a sec, check the gpios
+
+		int bUser = BSP_PB_GetState(BUTTON_USER1);
+		int bTamp = BSP_PB_GetState(BUTTON_TAMP);
+		int sd = BSP_SD_IsDetected(0);
+
+		if (now - thenD > 1000) { // every something, report
+			  printf("c %lu bu %d bt %d sd %d \r\n", cam_frame_counter , bUser, bTamp , sd);
+			  thenD = now;
+		}
+
+		// SENSOR INPUT
+		if (userBState && !bUser) {
+			// trigger on falling edge -
+			printf("USER BLIP!\r\n");
+
+			// -> activity; prolong recording interval
+			if (myState == FILE_OPENED) {
+				printf("CAPTURING, but reseting frame counter from %d!\r\n", frame_nb);
+				frame_nb=0;
+			} else if (myState == CARD_INSERTED) {
+				printf("IDLE, starting up!\r\n");
+				notify_open();
+				frame_nb = 0;
+			}
+		}
+
+		// simulate eject / mount request
+		if (tampBState && !bTamp) {
+			// trigger on falling edge
+			printf("TAMP BLIP! s=%d \r\n", state);
+
+			if (state == NO_CARD) { // simulate insert
+				printf("TAMP BLIP!\r\n");
+				notify_mount();
+			} else if (state == CARD_INSERTED) {
+				notify_umount();
+			}
+
+			if (myState == FILE_OPENED) {
+				frame_nb = VIDEO_FRAME_NB; // triggers close code outside
+			}
+		}
+
+
+		userBState = bUser;
+		tampBState = bTamp;
+		//
+		then = now;
+	}
+}
+
+
+
+
+
 
 static int encoder_prepare(uint32_t width, uint32_t height, uint32_t * output_buffer)
 {
