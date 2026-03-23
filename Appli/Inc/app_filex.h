@@ -133,8 +133,11 @@ extern void init_detect_pin();
 /* Exported functions prototypes ---------------------------------------------*/
 UINT VENC_FileX_Init(void);
 /* USER CODE BEGIN EFP */
-UINT VENC_FileX_write(CHAR * data, LONG size);
+//UINT VENC_FileX_write(CHAR * data, LONG size);
 UINT VENC_FileX_close(void);
+
+UINT enqueue_file_data(CHAR *data, LONG size);
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
