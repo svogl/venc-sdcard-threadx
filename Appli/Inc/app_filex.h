@@ -87,7 +87,8 @@ typedef enum {
 typedef enum {
 	NO_CARD = 0,
 	CARD_INSERTED,
-	FILE_OPENED
+	FILE_OPENED,
+	CARD_ERROR,
 } FxThreadState;
 
 extern FxThreadState state;

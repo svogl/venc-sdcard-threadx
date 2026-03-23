@@ -99,7 +99,7 @@ TX_THREAD write_thread;
 //__attribute__ ((aligned (32)))
 //uint32_t output_buffer[800*600/8];// __NON_CACHEABLE;
 
-static int frame_nb = VIDEO_FRAME_NB;
+static int frame_nb = VIDEO_FRAME_NB+1; // by default, be inactive
 
 //////////////////////////
 //////////////////////////
@@ -200,6 +200,8 @@ size_t SD_index = 0;
 #endif /* USE_SD_AS_OUTPUT */
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
+
+static int encoder_hw_init(uint32_t width, uint32_t height, uint32_t * output_buffer);
 static int encoder_prepare(uint32_t width, uint32_t height, uint32_t * output_buffer);
 static int Encode_frame(struct qentry* ent);
 static int encoder_end(void);
@@ -509,6 +511,8 @@ void main_thread_func(ULONG arg){
 
   ULONG s_msg = DATA_AVAILABLE;
 
+  encoder_hw_init(800,600,(uint32_t*)0x3413A600);
+
   while (1) {
 	  // TODO: introduce proper state handling.
 
@@ -549,7 +553,8 @@ void main_thread_func(ULONG arg){
 						  break;
 					  }
 
-					  TRACE_MAIN("ENQ writeQ %d - %d i %d s %d\r\n", frame_nb, ent->fc, ent->idx, ent->size);
+					  TRACE_MAIN("ENQ writeQ %d - %d i %d s %d states %ld %ld\r\n", frame_nb, ent->fc, ent->idx, ent->size,
+							  myState, state);
 
 					  enq(writeQ, ent);
 					  notify_data_available();
@@ -557,6 +562,8 @@ void main_thread_func(ULONG arg){
 			  } else {
 //				  printf("c %lu\r\n", cam_frame_counter );
 			  }
+
+			  handleInteraction();
 		  } else {
 			tx_thread_sleep(1);
 		  }
@@ -595,8 +602,9 @@ static void handleInteraction()
 		int sd = BSP_SD_IsDetected(0);
 
 		if (now - thenD > 1000) { // every something, report
-			  printf("c %lu bu %d bt %d sd %d \r\n", cam_frame_counter , bUser, bTamp , sd);
-			  thenD = now;
+			printf("c %lu bu %d bt %d sd %d S: %d %d\r\n", cam_frame_counter , bUser, bTamp , sd,
+					state, myState);
+			thenD = now;
 		}
 
 		// SENSOR INPUT
@@ -608,10 +616,16 @@ static void handleInteraction()
 			if (myState == FILE_OPENED) {
 				printf("CAPTURING, but reseting frame counter from %d!\r\n", frame_nb);
 				frame_nb=0;
-			} else if (myState == CARD_INSERTED) {
+			} else {
 				printf("IDLE, starting up!\r\n");
 				notify_open();
+
+				// allow some time for file to open
+				tx_thread_sleep(50);
+
 				frame_nb = 0;
+				state = FILE_OPENED;
+
 			}
 		}
 
@@ -640,93 +654,96 @@ static void handleInteraction()
 	}
 }
 
+static int encoder_hw_init(uint32_t width, uint32_t height, uint32_t * output_buffer)
+{
+	H264EncRet ret;
+	height /= 16; // round down to macroblock size
+	height *= 16;
+	H264EncPreProcessingCfg preproc_cfg = {0};
 
+	/* software workaround for Linemult triggering VENC interrupt. Make it happen as little as possible */
+	MODIFY_REG(DCMIPP->P1PPCR, DCMIPP_P1PPCR_LINEMULT_Msk,DCMIPP_MULTILINE_128_LINES);
 
+	frame_nb = 0;
+	/* Step 1: Initialize an encoder instance */
+	/* set config to 1 ref frame */
+	cfg.refFrameAmount = 1;
+	/* 30 fps frame rate */
+	cfg.frameRateDenom = 1;
+	cfg.frameRateNum = FRAMERATE;
+	/* Image resolution */
+	cfg.width = width;
+	cfg.height = height;
+	/* Stream type */
+	cfg.streamType = H264ENC_BYTE_STREAM;
+	// do not use the double-buffer for HRD; we're saving to disk & saving memory.
+	cfg.viewMode = H264ENC_BASE_VIEW_SINGLE_BUFFER;
 
+	/** single buffer allocations for 800x592:
+	  EWL ALLOC 473600
+	  EWL ALLOC 236800
+	  EWL ALLOC 236800
+	  EWL ALLOC 168
+	  EWL ALLOC 48256
+	  EWL ALLOC 103600
+	  EWL ALLOC 928
+	  total:  1100152 == 1.04Mb
+	 */
+	/* encoding level*/
+	/*See API guide for level depending on resolution and framerate*/
+	cfg.level = H264ENC_LEVEL_2_2;
+	cfg.svctLevel = 0;
+
+	cfg.level = H264ENC_LEVEL_3_1; // for higher resolution...
+
+	/* Output buffer size */
+	outbuf.size = cfg.width * cfg.height;
+
+	ret = H264EncInit(&cfg, &encoder);
+	if (ret != H264ENC_OK)
+	{
+		TRACE_MAIN("error initializing encoder %d\n", ret);
+		return -1;
+	}
+
+	/* set format conversion for preprocessing */
+	ret = H264EncGetPreProcessing(encoder, &preproc_cfg);
+	if(ret != H264ENC_OK){
+		TRACE_MAIN("error getting preproc data\n");
+		return -1;
+	}
+	preproc_cfg.inputType = H264ENC_RGB565;
+	ret = H264EncSetPreProcessing(encoder, &preproc_cfg);
+	if(ret != H264ENC_OK){
+		TRACE_MAIN("error setting preproc data\n");
+		return -1;
+	}
+
+	{ // if rate control
+		H264EncRateCtrl rateCtrl;
+		ret = H264EncGetRateCtrl(encoder, &rateCtrl );
+		if(ret != H264ENC_OK){
+			TRACE_MAIN("error get ratectl data\n");
+			return -1;
+		}
+		rateCtrl.pictureRc = 0;
+		rateCtrl.mbRc = 0;
+		rateCtrl.gopLen = 8;
+		rateCtrl.bitPerSecond = 5*1024*1024; // 1M bps
+		ret = H264EncSetRateCtrl(encoder, &rateCtrl );
+		if(ret != H264ENC_OK){
+			TRACE_MAIN("error set ratectl data\n");
+			return -1;
+		}
+	}
+
+	return 0;
+}
 
 
 static int encoder_prepare(uint32_t width, uint32_t height, uint32_t * output_buffer)
 {
-  H264EncRet ret;
-  height /= 16; // round down to macroblock size
-  height *= 16;
-  H264EncPreProcessingCfg preproc_cfg = {0};
-
-  /* software workaround for Linemult triggering VENC interrupt. Make it happen as little as possible */
-  MODIFY_REG(DCMIPP->P1PPCR, DCMIPP_P1PPCR_LINEMULT_Msk,DCMIPP_MULTILINE_128_LINES);
-
-  frame_nb = 0;
-  /* Step 1: Initialize an encoder instance */
-  /* set config to 1 ref frame */
-  cfg.refFrameAmount = 1;
-  /* 30 fps frame rate */
-  cfg.frameRateDenom = 1;
-  cfg.frameRateNum = FRAMERATE;
-  /* Image resolution */
-  cfg.width = width;
-  cfg.height = height;
-  /* Stream type */
-  cfg.streamType = H264ENC_BYTE_STREAM;
-  // do not use the double-buffer for HRD; we're saving to disk & saving memory.
-  cfg.viewMode = H264ENC_BASE_VIEW_SINGLE_BUFFER;
-
-  /** single buffer allocations for 800x592:
-  EWL ALLOC 473600
-  EWL ALLOC 236800
-  EWL ALLOC 236800
-  EWL ALLOC 168
-  EWL ALLOC 48256
-  EWL ALLOC 103600
-  EWL ALLOC 928
-  total:  1100152 == 1.04Mb
-	*/
-  /* encoding level*/
-  /*See API guide for level depending on resolution and framerate*/
-  cfg.level = H264ENC_LEVEL_2_2;
-  cfg.svctLevel = 0;
-
-  cfg.level = H264ENC_LEVEL_3_1; // for higher resolution...
-
-  /* Output buffer size */
-  outbuf.size = cfg.width * cfg.height;
-
-  ret = H264EncInit(&cfg, &encoder);
-  if (ret != H264ENC_OK)
-  {
-    TRACE_MAIN("error initializing encoder %d\n", ret);
-    return -1;
-  }
-
-  /* set format conversion for preprocessing */
-  ret = H264EncGetPreProcessing(encoder, &preproc_cfg);
-  if(ret != H264ENC_OK){
-    TRACE_MAIN("error getting preproc data\n");
-    return -1;
-  }
-  preproc_cfg.inputType = H264ENC_RGB565;
-  ret = H264EncSetPreProcessing(encoder, &preproc_cfg);
-  if(ret != H264ENC_OK){
-    TRACE_MAIN("error setting preproc data\n");
-    return -1;
-  }
-
-	{ // if rate control
-	  H264EncRateCtrl rateCtrl;
-	  ret = H264EncGetRateCtrl(encoder, &rateCtrl );
-	  if(ret != H264ENC_OK){
-		TRACE_MAIN("error get ratectl data\n");
-		return -1;
-	  }
-	  rateCtrl.pictureRc = 0;
-	  rateCtrl.mbRc = 0;
-	  rateCtrl.gopLen = 8;
-	  rateCtrl.bitPerSecond = 5*1024*1024; // 1M bps
-	  ret = H264EncSetRateCtrl(encoder, &rateCtrl );
-	  if(ret != H264ENC_OK){
-		TRACE_MAIN("error set ratectl data\n");
-		return -1;
-	  }
-	}
+	H264EncRet ret;
 
 
   /*assign buffers to input structure */
