@@ -39,7 +39,6 @@ extern "C" {
 /* USER CODE BEGIN ET */
 
 
-
 //////////////////////////
 //////////////////////////
 ////////////////////////// 2 Q or not 2 Q... API:
@@ -80,20 +79,32 @@ typedef enum {
 	OPEN_FILE = 5, /* open file */
 	CLOSE_FILE = 7, /* close file, re-open... */
 	CARD_STATUS_CHANGED = 9, /* card pulled or inserted -> detect pin irq*/
+	MOUNT_CARD = 11, /* simulate card detect irq - mount */
+	UMOUNT_CARD, /* simulate card detect irq - unmount*/
 } FXMessageType;
 
 
 typedef enum {
 	NO_CARD = 0,
 	CARD_INSERTED,
-	FILE_OPENED
+	FILE_OPENED,
+	CARD_ERROR,
 } FxThreadState;
 
 extern FxThreadState state;
 
 extern void notify_data_available();
 
+// mount sdcard
+void notify_mount();
+// unmount sdcard
+void notify_umount();
+
+// open next file
+extern void notify_open();
+// close file
 extern void notify_close();
+
 
 //////////////////////////
 //////////////////////////
@@ -101,6 +112,8 @@ extern void notify_close();
 //////////////////////////
 //////////////////////////
 
+extern UINT SD_IsDetected(uint32_t Instance);
+extern void init_detect_pin();
 
 
 /* USER CODE END ET */
@@ -120,8 +133,11 @@ extern void notify_close();
 /* Exported functions prototypes ---------------------------------------------*/
 UINT VENC_FileX_Init(void);
 /* USER CODE BEGIN EFP */
-UINT VENC_FileX_write(CHAR * data, LONG size);
+//UINT VENC_FileX_write(CHAR * data, LONG size);
 UINT VENC_FileX_close(void);
+
+UINT enqueue_file_data(CHAR *data, LONG size);
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
