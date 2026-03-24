@@ -92,9 +92,14 @@
 			<locationURI>PARENT-2-PROJECT_LOC/Drivers/BSP/STM32N6570-DK/stm32n6570_discovery_lcd.c</locationURI>
 		</link>
 		<link>
+			<name>Drivers/BSP/stm32n6570_discovery_sd.c</name>
+			<type>1</type>
+			<location>PARENT-2-PROJECT_LOC/Drivers/BSP/STM32N6570-DK/stm32n6570_discovery_sd.c</location>
+		</link>
+		<link>
 			<name>Drivers/BSP/stm32n6570_discovery_xspi.c</name>
 			<type>1</type>
-			<location>PARENT-2-PROJECT_LOC/Drivers/BSP/STM32N6570-DK/stm32n6570_discovery_xspi.c</location>
+			<locationURI>PARENT-2-PROJECT_LOC/Drivers/BSP/STM32N6570-DK/stm32n6570_discovery_xspi.c</locationURI>
 		</link>
 		<link>
 			<name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_hal.c</name>
@@ -214,7 +219,7 @@
 		<link>
 			<name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_hal_xspi.c</name>
 			<type>1</type>
-			<location>PARENT-2-PROJECT_LOC/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_xspi.c</location>
+			<locationURI>PARENT-2-PROJECT_LOC/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_xspi.c</locationURI>
 		</link>
 		<link>
 			<name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_ll_sdmmc.c</name>
@@ -2359,17 +2364,17 @@
 		<link>
 			<name>Middlewares/lcd/stm32_lcd.c</name>
 			<type>1</type>
-			<location>PARENT-2-PROJECT_LOC/Utilities/lcd/stm32_lcd.c</location>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/stm32_lcd.c</locationURI>
 		</link>
 		<link>
 			<name>Middlewares/lcd/stm32_lcd_ex.c</name>
 			<type>1</type>
-			<location>PARENT-2-PROJECT_LOC/Utilities/lcd/stm32_lcd_ex.c</location>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/stm32_lcd_ex.c</locationURI>
 		</link>
 		<link>
 			<name>Drivers/BSP/Components/aps256xx.c</name>
 			<type>1</type>
-			<location>PARENT-2-PROJECT_LOC/Drivers/BSP/Components/aps256xx/aps256xx.c</location>
+			<locationURI>PARENT-2-PROJECT_LOC/Drivers/BSP/Components/aps256xx/aps256xx.c</locationURI>
 		</link>
 		<link>
 			<name>Drivers/BSP/Components/imx335.c</name>

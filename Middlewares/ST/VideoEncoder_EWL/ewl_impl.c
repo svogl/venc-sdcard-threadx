@@ -23,7 +23,7 @@
 #include "stm32n6xx_ll_venc.h"
 #include "reg_offset_v7.h"
 
-
+#include <stdio.h>
 
 /* Global variables ----------------------------------------------------------*/
 
@@ -363,6 +363,8 @@ __weak i32 EWLMallocLinear(const void *instance, u32 size, EWLLinearMem_t *info)
   /* make size 8-byte aligned */
   u32 size_aligned = ALIGNED_SIZE(size);
   info->size = size_aligned;
+
+  printf("EWL ALLOC %d\r\n", size);
 
 #if (EWL_ALLOC_API == EWL_USE_MALLOC_MM)
   /* allocate using malloc and check return */

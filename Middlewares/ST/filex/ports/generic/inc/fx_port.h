@@ -57,6 +57,7 @@
 #ifndef FX_PORT_H
 #define FX_PORT_H
 
+#define FX_ENABLE_EXFAT 1
 
 /* Determine if the optional FileX user define file should be used.  */
 

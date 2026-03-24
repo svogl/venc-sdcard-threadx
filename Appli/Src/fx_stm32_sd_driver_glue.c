@@ -11,14 +11,23 @@
 
 #include "fx_stm32_sd_driver.h"
 #include "main.h"
+#include "stm32n6570_discovery_sd.h"
 
 TX_SEMAPHORE sd_tx_semaphore;
 TX_SEMAPHORE sd_rx_semaphore;
 
-SD_HandleTypeDef hsd1;
+/* sv: use BSP glue code, not HAL */
+#define FX_STM32_SD_USE_HAL    0
 
+#if (FX_STM32_SD_USE_HAL == 1)
+SD_HandleTypeDef hsd1;
+#endif
 
 /* USER CODE BEGIN 0 */
+
+void HAL_SD_DriveTransceiver_1_8V_Callback(FlagStatus status);
+
+// n.b. that instance == 0 in the following calls.
 
 /* USER CODE END 0 */
 
@@ -35,7 +44,9 @@ INT fx_stm32_sd_init(UINT instance)
   UNUSED(instance);
   /* USER CODE END PRE_FX_SD_INIT */
 
-#if (FX_STM32_SD_INIT == 1)
+  printf("FXG INIT SD %d\r\n", instance);
+
+#if (FX_STM32_SD_USE_HAL == 1)
   hsd1.Instance = SDMMC2;
   hsd1.Init.ClockEdge = SDMMC_CLOCK_EDGE_RISING;
   hsd1.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
@@ -46,12 +57,29 @@ INT fx_stm32_sd_init(UINT instance)
   {
     Error_Handler();
   }
+  SD_HandleTypeDef* hsd = &hsd_sdmmc[instance];
+
+  HAL_SD_MspInit(hsd);
+
+  printf("FXG INIT SD1 %d\r\n", instance);
+#else
+
+#if (USE_SD_TRANSCEIVER != 0U)
+  // there are no definitions for HAL_SD_RegisterCallback, so set the function directly:
+  hsd_sdmmc[instance].DriveTransceiver_1_8V_Callback = HAL_SD_DriveTransceiver_1_8V_Callback;
+//  if (HAL_SD_RegisterCallback(&hsd_sdmmc[Instance], HAL_SD_1_8_V_DRIVER_ID, MY_SD_DriveTransceiver_1_8V_Callback) != HAL_OK)
+//  {
+//	  printf("1V8 DRIVER CALLBACK REGISTER FAILED\r\n");
+//    return HAL_ERROR;
+//  }
+#endif
+  ret = BSP_SD_Init(instance);
+
+  printf("FXG INIT SD2 %d r=%d\r\n", instance, ret);
+
 #endif
 
   /* USER CODE BEGIN POST_FX_SD_INIT */
-//  HAL_SD_ConfigWideBusOperation(&hsd1, SDMMC_BUS_WIDE_4B);
-//  HAL_SD_ConfigSpeedBusOperation(&hsd1, SDMMC_SPEED_MODE_AUTO);
-//  printf("CARD TYPE %d speed %d \r\n", hsd1.SdCard.CardType, hsd1.SdCard.CardSpeed );
 
   /* USER CODE END POST_FX_SD_INIT */
 
@@ -70,12 +98,15 @@ INT fx_stm32_sd_deinit(UINT instance)
   /* USER CODE BEGIN PRE_FX_SD_DEINIT */
   UNUSED(instance);
   /* USER CODE END PRE_FX_SD_DEINIT */
-#if (FX_STM32_SD_INIT == 1)
+#if (FX_STM32_SD_USE_HAL == 1)
   if(HAL_SD_DeInit(&hsd1) != HAL_OK)
   {
     ret = 1;
   }
+#else
+  BSP_SD_DeInit(instance);
 #endif
+
   /* USER CODE BEGIN POST_FX_SD_DEINIT */
 
   /* USER CODE END POST_FX_SD_DEINIT */
@@ -96,7 +127,11 @@ INT fx_stm32_sd_get_status(UINT instance)
   UNUSED(instance);
   /* USER CODE END PRE_GET_STATUS */
 
+#if (FX_STM32_SD_USE_HAL == 1)
   if(HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER)
+#else
+  if(BSP_SD_GetCardState(instance) != SD_TRANSFER_OK)
+#endif
   {
     ret = 1;
   }
@@ -123,10 +158,17 @@ INT fx_stm32_sd_read_blocks(UINT instance, UINT *buffer, UINT start_block, UINT 
   UNUSED(instance);
   /* USER CODE END PRE_READ_BLOCKS */
 
+#if (FX_STM32_SD_USE_HAL == 1)
   if(HAL_SD_ReadBlocks_DMA(&hsd1, (uint8_t *)buffer, start_block, total_blocks) != HAL_OK)
   {
     ret = 1;
   }
+#else
+  if (BSP_SD_ReadBlocks_DMA( instance, (uint32_t*)buffer, start_block, total_blocks)!= BSP_ERROR_NONE)
+  {
+    ret = 1;
+  }
+#endif
 
   /* USER CODE BEGIN POST_READ_BLOCKS */
 
@@ -150,10 +192,19 @@ INT fx_stm32_sd_write_blocks(UINT instance, UINT *buffer, UINT start_block, UINT
   UNUSED(instance);
   /* USER CODE END PRE_WRITE_BLOCKS */
 
+#if (FX_STM32_SD_USE_HAL == 1)
   if(HAL_SD_WriteBlocks_DMA(&hsd1, (uint8_t *)buffer, start_block, total_blocks) != HAL_OK)
   {
     ret = 1;
   }
+#else
+//  return 0;
+    if (BSP_SD_WriteBlocks_DMA( instance, (uint32_t*)buffer, start_block, total_blocks)!= BSP_ERROR_NONE)
+    {
+      ret = 1;
+    }
+//    printf("wb %d l %d\r\n", start_block, total_blocks );
+#endif
 
   /* USER CODE BEGIN POST_WRITE_BLOCKS */
 
@@ -162,9 +213,10 @@ INT fx_stm32_sd_write_blocks(UINT instance, UINT *buffer, UINT start_block, UINT
   return ret;
 }
 
+#if (FX_STM32_SD_USE_HAL == 1)
 /**
 * @brief SD DMA Tx Transfer completed callbacks
-* @param Instance the sd instance
+* @param instance the sd instance
 * @retval None
 */
 void HAL_SD_TxCpltCallback(SD_HandleTypeDef *hsd)
@@ -184,6 +236,22 @@ void HAL_SD_TxCpltCallback(SD_HandleTypeDef *hsd)
   * @param  hsd  SD handle
   * @retval None
   */
+#else
+
+/**
+  * @brief BSP Tx Transfer completed callbacks
+  * @param  instance     SD instance
+  * @retval None
+  */
+void BSP_SD_WriteCpltCallback(uint32_t instance)
+{
+  /* Prevent unused argument(s) compilation warning */
+  UNUSED(instance);
+  tx_semaphore_put(&sd_tx_semaphore);
+}
+#endif
+
+
 void HAL_SD_MspInit(SD_HandleTypeDef* hsd)
 {
     GPIO_InitTypeDef gpio_init_structure = {0};
@@ -210,6 +278,27 @@ void HAL_SD_MspInit(SD_HandleTypeDef* hsd)
     /* D3*/
     gpio_init_structure.Pin = GPIO_PIN_4;
     HAL_GPIO_Init(GPIOE, &gpio_init_structure);
+
+#if (USE_SD_TRANSCEIVER != 0U)
+    //////// 3v3 / 1V8 switch for SD_TRANSCEIVER
+    // this is PO5 / SD_SEL
+    {
+    	// needed for PO pin operation:
+    	HAL_PWREx_EnableVddIO2();
+        __HAL_RCC_GPIOO_CLK_ENABLE();
+
+    	GPIO_InitTypeDef gpio_init_structure = {0};
+		gpio_init_structure.Mode      = GPIO_MODE_AF_PP;
+		gpio_init_structure.Pull      = GPIO_NOPULL;
+		gpio_init_structure.Speed     = GPIO_SPEED_FREQ_MEDIUM;
+		gpio_init_structure.Alternate = GPIO_MODE_OUTPUT_PP;
+		gpio_init_structure.Pin = GPIO_PIN_5 ;
+
+		HAL_GPIO_Init(GPIOO, &gpio_init_structure);
+
+		HAL_GPIO_WritePin(GPIOO, GPIO_PIN_5, GPIO_PIN_RESET );
+    }
+#endif
 
     /* NVIC configuration for SDMMC2 interrupts */
     HAL_NVIC_SetPriority(SDMMC2_IRQn, 5, 0);
@@ -238,18 +327,32 @@ void HAL_SD_MspDeInit(SD_HandleTypeDef* hsd)
     gpio_init_structure.Pin = GPIO_PIN_4;
     HAL_GPIO_DeInit(GPIOD, gpio_init_structure.Pin);
 
+#if (USE_SD_TRANSCEIVER != 0U)
+    gpio_init_structure.Pin = GPIO_PIN_5;
+    HAL_GPIO_DeInit(GPIOO, gpio_init_structure.Pin);
+#endif
+
     /* Disable SDMMC2 clock */
     __HAL_RCC_SDMMC2_CLK_DISABLE();
   }
 }
 
+
+
 void SDMMC2_IRQHandler(void)
 {
-  HAL_SD_IRQHandler(&hsd1);
+#if (FX_STM32_SD_USE_HAL == 1)
+  HAL_SD_IRQHandler(&hsd_sdmmc[0]);
+#else
+  BSP_SD_IRQHandler(0);
+#endif
 }
+
+
+#if (FX_STM32_SD_USE_HAL == 1)
 /**
 * @brief SD DMA Rx Transfer completed callbacks
-* @param Instance the sd instance
+* @param instance the sd instance
 * @retval None
 */
 void HAL_SD_RxCpltCallback(SD_HandleTypeDef *hsd)
@@ -266,5 +369,33 @@ void HAL_SD_RxCpltCallback(SD_HandleTypeDef *hsd)
 }
 
 /* USER CODE BEGIN 1 */
+#else
+
+/**
+  * @brief BSP Rx Transfer completed callbacks
+  * @param  instance     SD instance
+  * @retval None
+  */
+void BSP_SD_ReadCpltCallback(uint32_t instance)
+{
+  /* Prevent unused argument(s) compilation warning */
+	tx_semaphore_put(&sd_rx_semaphore);
+}
+
+void HAL_SD_DriveTransceiver_1_8V_Callback(FlagStatus status)
+{
+	//  analog switch NXP NX3L1T3157; SEL pin: input 0 (sel low): VDD_SD, input 1(sel hi): 1v8
+//	printf("1V8 CB: %d\r\n", status);
+	if (status == RESET) {
+		HAL_GPIO_WritePin(GPIOO, GPIO_PIN_5, GPIO_PIN_RESET );
+	} else {
+		HAL_GPIO_WritePin(GPIOO, GPIO_PIN_5, GPIO_PIN_SET );
+	}
+}
+
+#endif
+
+
+
 
 /* USER CODE END 1 */

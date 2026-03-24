@@ -50,7 +50,7 @@
 /* m and n values for given CtxIdx */
 
 /* I Slices */
-static const int h264ContextInitIntra[460][2] = {
+static const i32 h264ContextInitIntra[460][2] = {
     /* 0 -> 10 */
     {20, -15}, {2, 54}, {3, 74}, {20, -15},
     {2, 54}, {3, 74}, {-28, 127}, {-23, 104},

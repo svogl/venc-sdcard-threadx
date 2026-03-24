@@ -59,6 +59,7 @@
     1. Include headers
 ------------------------------------------------------------------------------*/
 #include <string.h>
+#include <stdio.h>
 #include "h264encapi.h"
 #include "enccommon.h"
 #include "H264Instance.h"

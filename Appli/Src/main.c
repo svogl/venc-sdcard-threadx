@@ -44,9 +44,9 @@
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 
-#define FRAMERATE 15
+#define FRAMERATE 25
 /* number of frames to film and encode */
-#define VIDEO_FRAME_NB 37
+#define VIDEO_FRAME_NB 100
 #define USE_SD_AS_OUTPUT 1
 
 /* Private macro -------------------------------------------------------------*/
@@ -61,15 +61,17 @@
 /* Private variables ---------------------------------------------------------*/
 
 uint16_t * pipe_buffer[2];
-uint8_t buf_index_changed = 0;
+volatile uint8_t buf_index_changed = 0;
+
 H264EncIn encIn= {0};
 H264EncOut encOut= {0};
 H264EncInst encoder= {0};
 H264EncConfig cfg= {0};
+
 uint32_t output_size = 0;
 uint32_t img_addr = 0;
 
-uint32_t cam_frame_counter = 0;
+volatile int32_t cam_frame_counter = 0;
 
 EWLLinearMem_t outbuf;
 
@@ -79,7 +81,7 @@ EWLLinearMem_t outbuf;
 
 
 __attribute__ ((section (".psram_bss")))
-__attribute__ ((aligned (8)))
+__attribute__ ((aligned (32)))
 uint8_t ewl_pool[1640000];// __NON_CACHEABLE;
 
 
@@ -87,7 +89,7 @@ uint8_t tx_main_heap[4096];
 TX_BYTE_POOL byte_pool;
 TX_THREAD main_thread;
 
-#define THREAD_STACK_SIZE 4000
+#define THREAD_STACK_SIZE 8000
 TX_BYTE_POOL byte_pool_w;
 uint8_t tx_write_heap[4096];
 uint8_t write_thread_stack[THREAD_STACK_SIZE];
@@ -105,7 +107,7 @@ static int frame_nb = 0;
 //////////////////////////
 //////////////////////////
 
-#define NUM_BUFS 4
+#define NUM_BUFS 3
 #define BUF_SIZE (160*1024)
 
 // static memory block that is used for buffers
@@ -121,8 +123,7 @@ int32_t out_buffers_len[NUM_BUFS] = {0, };
 
 // pre-allocated list of queue entries; initialized in initq
 struct qentry raw_entries[NUM_BUFS] = {
-		{ 0, -1, out_buffers[0], NULL},
-		{ 1, -1, out_buffers[1], NULL},
+		{ NULL, },
 };
 
 // the queues use a dummy element.
@@ -134,7 +135,9 @@ struct qentry* writeQ = &writeQhead;
 
 int initq() {
 	for (int i=0;i<NUM_BUFS; i++) {
+		raw_entries[i].next = NULL;
 		raw_entries[i].idx = i;
+		raw_entries[i].data_len = BUF_SIZE;
 		raw_entries[i].size = -1;
 		raw_entries[i].data = out_buffers[i];
 
@@ -226,13 +229,14 @@ int save_stream(uint32_t offset, uint32_t * buf, size_t size){
   return 0;
 #endif
 	uint32_t t2 = HAL_GetTick();
-	printf("write %d %d %d\r\n", ret, size, (t2-t1));
+	printf("save_stream %d %d %d\r\n", ret, size, (t2-t1));
 	return ret;
 }
 
 int flush_out_buffer(void){
 #if USE_SD_AS_OUTPUT
-  return (int) VENC_FileX_close();
+	notify_close();
+//  return (int) VENC_FileX_close();
 #else
   return 0;
 #endif
@@ -250,9 +254,9 @@ int main(void)
   MPU_Config();
 
   /* Enable DCache */
-  SCB_EnableDCache();
+//  SCB_EnableDCache();
   /* Enable ICache */
-  SCB_EnableICache();
+//  SCB_EnableICache();
 
   SystemCoreClockUpdate();
 
@@ -282,9 +286,30 @@ int main(void)
     Error_Handler();
   }
 #endif
+
+  BSP_PB_Init(BUTTON_USER1, BUTTON_MODE_GPIO);
+  BSP_PB_Init(BUTTON_TAMP, BUTTON_MODE_GPIO);
+
   printf("---------------- BOOT\r\n");
 
   tx_kernel_enter();
+}
+
+void BSP_PB_Callback (Button_TypeDef Button)
+{
+	int state = -1;
+
+	switch (Button) {
+	case BUTTON_USER1:
+		state = BSP_PB_GetState(Button);
+		break;
+	case BUTTON_TAMP:
+		state = BSP_PB_GetState(Button);
+		break;
+	default:
+		break;
+	}
+	printf("BTN CB for %d s= %d\r\n", Button, state);
 }
 
 /**
@@ -294,7 +319,7 @@ int main(void)
 */
 void tx_application_define(void *first_unused_memory)
 {
-	  if (1) {
+	  if (0) {
 		  void *thread_stack_pointer;
 		  tx_byte_pool_create(&byte_pool_w, "byte pool w", tx_write_heap, sizeof(tx_write_heap));
 		  tx_byte_allocate(&byte_pool_w,
@@ -306,8 +331,8 @@ void tx_application_define(void *first_unused_memory)
 		              10,  // priority
 					  8,  // preempt threshold
 					  TX_APP_THREAD_TIME_SLICE,
-//					  TX_DONT_START);
-					  TX_AUTO_START);
+					  TX_DONT_START);
+//					  TX_AUTO_START);
 	  }
 	  {
 		  void *thread_stack_pointer;
@@ -345,6 +370,8 @@ void write_thread_func(ULONG arg){
 		}
 	}
 }
+
+int lcd_enabled = 0;
 
 void main_thread_func(ULONG arg){
   __HAL_RCC_SYSCFG_CLK_ENABLE();
@@ -442,12 +469,14 @@ void main_thread_func(ULONG arg){
   }
 
   /* Initialize LCD */
-  int err = BSP_LCD_InitEx(0, LCD_ORIENTATION_LANDSCAPE, LCD_PIXEL_FORMAT_RGB565, LCD_DEFAULT_WIDTH, LCD_DEFAULT_HEIGHT);
-  if(err){
-    TRACE_MAIN("error initializing LCD : %d\n", err);
-    Error_Handler();
+  if (lcd_enabled) {
+	  int err = BSP_LCD_InitEx(0, LCD_ORIENTATION_LANDSCAPE, LCD_PIXEL_FORMAT_RGB565, LCD_DEFAULT_WIDTH, LCD_DEFAULT_HEIGHT);
+	  if(err){
+		TRACE_MAIN("error initializing LCD : %d\n", err);
+		Error_Handler();
+	  }
+	  BSP_LCD_SetLayerAddress(0, 0, 0x34050000);
   }
-  BSP_LCD_SetLayerAddress(0, 0, 0x34050000);
 
   /* initialize VENC */
   LL_VENC_Init();
@@ -459,71 +488,81 @@ void main_thread_func(ULONG arg){
 
   FxThreadState myState = NO_CARD;
   ULONG s_msg = DATA_AVAILABLE;
+  int32_t then = HAL_GetTick();
+
   while (1) {
+	  // TODO: introduce proper state handling.
 
-//
-//		if(buf_index_changed){
-//		  /* new frame available */
-//		  buf_index_changed = 0;
-//		} else {
-//			tx_thread_sleep(1);
-//			continue;
-//		}
-
-
-		while (frame_nb < VIDEO_FRAME_NB) {
+	  while (frame_nb < VIDEO_FRAME_NB) {
 		  if (state == FILE_OPENED && myState != FILE_OPENED) {
-				  // file opened -> init encoder
-				  printf("STARTING ENCODER \r\n");
-				  // todo: start encoding on sensor event.
+			  // file opened -> init encoder
+			  printf("STARTING ENCODER \r\n");
+			  // todo: start encoding on sensor event.
 
-				  /* initialize encoder software for camera feed encoding */
-				  encoder_prepare(800,600,(uint32_t*)0x3413A600);
+			  /* initialize encoder software for camera feed encoding */
+			  encoder_prepare(800,600,(uint32_t*)0x3413A600);
 
-				  myState = FILE_OPENED;
-			  }
-
-
-		if(buf_index_changed){
-		  /* new frame available */
-		  buf_index_changed = 0;
-
-
-		if(BSP_CAMERA_BackgroundProcess() != BSP_ERROR_NONE)
-		{
-		  Error_Handler();
-		}
-
-		  if (myState == FILE_OPENED) {
-			  struct qentry* ent = deq(freeQ);
-
-			  if (!ent) {
-				  // no free buffers available - silently fail over
-				  // and wait for the next frame.
-			  } else {
-
-				  int ret = Encode_frame(ent);
-				  frame_nb++;
-				  if (ret < 0) {
-					  break;
-				  }
-
-				  TRACE_MAIN("ENQ writeQ %d - %d i %d s %d\r\n", frame_nb, cam_frame_counter, ent->idx, ent->size);
-
-				  enq(writeQ, ent);
-				  notify_data_available();
-			  }
+			  myState = FILE_OPENED;
 		  }
-		}
+
+
+		  if(buf_index_changed){
+			  /* new frame available */
+			  buf_index_changed = 0;
+
+			  if(BSP_CAMERA_BackgroundProcess() != BSP_ERROR_NONE)
+			  {
+				  Error_Handler();
+			  }
+
+			  if (myState == FILE_OPENED) {
+				  struct qentry* ent = deq(freeQ);
+
+				  if (!ent) {
+					  // no free buffers available - silently fail over
+					  // and wait for the next frame.
+				  } else {
+
+					  int ret = Encode_frame(ent);
+					  frame_nb++;
+					  if (ret < 0) {
+						  printf("ENC ERROR. %d STOP.\r\n\r\n", ret);
+						  break;
+					  }
+
+					  TRACE_MAIN("ENQ writeQ %d - %d i %d s %d\r\n", frame_nb, ent->fc, ent->idx, ent->size);
+
+					  enq(writeQ, ent);
+					  notify_data_available();
+				  }
+			  } else {
+//				  printf("c %lu\r\n", cam_frame_counter );
+			  }
+		  } else {
+			tx_thread_sleep(1);
+		  }
+
 	  }
 	  if (frame_nb == VIDEO_FRAME_NB) {
+
 		  /* after encoding a certain nb of frames, close file & flush buffers */
 		  encoder_end();
 		  flush_out_buffer();
+		  myState = NO_CARD;
 		  frame_nb++;
 	  }
+	  int32_t now = HAL_GetTick();
+	  if (now - then > 500) { // 2 times a sec, check the gpios
+		  //
+		  then = now;
 
-	  myState = NO_CARD;
+		  int bu= BSP_PB_GetState(BUTTON_USER1);
+		  int bt = BSP_PB_GetState(BUTTON_TAMP);
+		  int sd = BSP_SD_IsDetected(0);
+
+		  printf("c %lu bu %d bt %d sd %d \r\n", cam_frame_counter , bu, bt , sd);
+
+	  }
 	  BSP_LED_Off(LED1);
 	  BSP_LED_Off(LED2);
   }
@@ -700,13 +739,16 @@ static int Encode_frame(struct qentry* ent){
     TRACE_MAIN("Error : NULL image address");
     return -1;
   }
-  printf("enc p %d -> %d %d\r\n", ent->idx, frame_nb, cam_frame_counter);
+  ent->fc = cam_frame_counter;
+  ent->ts = HAL_GetTick();
 
-  print_timer(img_addr);
+//  printf("enc p %d -> %d %d\r\n", ent->idx, frame_nb, cam_frame_counter);
 
-  encIn.pOutBuf = ent->data;
+//  print_timer(img_addr);
+
+  encIn.pOutBuf = (u32*)ent->data;
   encIn.busOutBuf = (uint32_t) ent->data;
-  encIn.outBufSize = BUF_SIZE;
+  encIn.outBufSize = ent->data_len;
 
   if (! (frame_nb & 0x07) || frame_nb ==0 )
   {
@@ -727,26 +769,30 @@ static int Encode_frame(struct qentry* ent){
   ret = H264EncStrmEncode(encoder, &encIn, &encOut, NULL, NULL, NULL);
 
   ent->size = encOut.streamSize;
+
+//  printf("ENCed %d %d %d\r\n", ret, encIn.codingType, encOut.streamSize);
+
   switch (ret)
   {
   case H264ENC_FRAME_READY:
 	  // the actual write operation is performed by the filex thread
-    /*save stream */
-//    if (save_stream(output_size, ent->data,  ent->size))
-//    {
-//      TRACE_MAIN("error saving stream frame %d\n", frame_nb);
-//      return -1;
-//    }
+    /*save stream - done outside by queueing... */
     output_size += encOut.streamSize;
     break;
+  case H264ENC_INVALID_ARGUMENT:
+      TRACE_MAIN("invalid argument!\r\n");
+	  break;
+  case H264ENC_OUTPUT_BUFFER_OVERFLOW:
+      TRACE_MAIN("output buffer overflow!\r\n");
+	  break;
   case H264ENC_SYSTEM_ERROR:
-    TRACE_MAIN("fatal error while encoding\n");
+    TRACE_MAIN("fatal error while encoding\r\n");
     break;
   default:
     TRACE_MAIN("error encoding frame %d : %d\n", frame_nb, ret);
     break;
   }
-  return 0;
+  return ret;
 }
 
 
@@ -921,11 +967,16 @@ static void SystemClock_Config(void)
 
 void BSP_CAMERA_FrameEventCallback(uint32_t instance)
 {
+  UNUSED(instance);
   /* swap buffers and signal new frame*/
   img_addr = DCMIPP->P1STM0AR;
   cam_frame_counter++;
-  BSP_LCD_SetLayerAddress(0, 0, img_addr);
-  BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
+
+  if (lcd_enabled) {
+	  BSP_LCD_SetLayerAddress(0, 0, img_addr);
+	  BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
+  }
+
   buf_index_changed = 1;
 }
 
@@ -997,7 +1048,7 @@ static void MPU_Config(void)
 void EWLPoolChoiceCb(u8 **pool_ptr, size_t *size)
 {
   *pool_ptr = ewl_pool;
-  *size = 1640000;
+  *size = sizeof(ewl_pool);
 }
 
 void EWLPoolReleaseCb(u8 **pool_ptr)
@@ -1016,7 +1067,7 @@ void EWLPoolReleaseCb(u8 **pool_ptr)
 */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-  TRACE_MAIN("assert failed at line %d of file %s\n", line, file);
+  TRACE_MAIN("assert failed at line %lu of file %s\n", line, file);
   /* Infinite loop */
   while (1)
   {

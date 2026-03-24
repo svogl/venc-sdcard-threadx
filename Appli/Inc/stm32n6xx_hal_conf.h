@@ -198,7 +198,7 @@ extern "C" {
 #define  USE_HAL_RNG_REGISTER_CALLBACKS       0U /* RNG register callback disabled       */
 #define  USE_HAL_RTC_REGISTER_CALLBACKS       0U /* RTC register callback disabled       */
 #define  USE_HAL_SAI_REGISTER_CALLBACKS       0U /* SAI register callback disabled       */
-#define  USE_HAL_SD_REGISTER_CALLBACKS        0U /* SD register callback disabled        */
+#define  USE_HAL_SD_REGISTER_CALLBACKS        1U /* SD register callback disabled        */
 #define  USE_HAL_SDIO_REGISTER_CALLBACKS      0U /* SDIO register callback disabled      */
 #define  USE_HAL_SDRAM_REGISTER_CALLBACKS     0U /* SDRAM register callback disabled     */
 #define  USE_HAL_SMARTCARD_REGISTER_CALLBACKS 0U /* SMARTCARD register callback disabled */
@@ -222,7 +222,7 @@ extern "C" {
 
 /* ################## SDMMC peripheral configuration ######################### */
 
-#define USE_SD_TRANSCEIVER            0U
+#define USE_SD_TRANSCEIVER            1U
 
 
 /* Includes ------------------------------------------------------------------*/
