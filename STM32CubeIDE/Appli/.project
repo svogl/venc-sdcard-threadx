@@ -94,7 +94,7 @@
 		<link>
 			<name>Drivers/BSP/stm32n6570_discovery_sd.c</name>
 			<type>1</type>
-			<location>PARENT-2-PROJECT_LOC/Drivers/BSP/STM32N6570-DK/stm32n6570_discovery_sd.c</location>
+			<locationURI>PARENT-2-PROJECT_LOC/Drivers/BSP/STM32N6570-DK/stm32n6570_discovery_sd.c</locationURI>
 		</link>
 		<link>
 			<name>Drivers/BSP/stm32n6570_discovery_xspi.c</name>
@@ -2385,6 +2385,11 @@
 			<name>Drivers/BSP/Components/imx335_reg.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Drivers/BSP/Components/imx335/imx335_reg.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/ThreadX/low_power/tx_low_power.c</name>
+			<type>1</type>
+			<location>PARENT-2-PROJECT_LOC/Middlewares/ST/threadx/utility/low_power/tx_low_power.c</location>
 		</link>
 		<link>
 			<name>Middlewares/ThreadX/port/tx_misra.S</name>

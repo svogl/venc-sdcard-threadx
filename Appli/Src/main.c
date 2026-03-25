@@ -454,11 +454,6 @@ void main_thread_func(ULONG arg){
 	LL_VENC_Init();
 
 	/* initialization done. Turn on the LEDs */
-	//  BSP_LED_On(LED1);
-	//  BSP_LED_On(LED2);
-	//  BSP_LED_Off(LED1);
-	//  BSP_LED_Off(LED2);
-
 
 	ULONG s_msg = DATA_AVAILABLE;
 
@@ -532,9 +527,6 @@ void main_thread_func(ULONG arg){
 			frame_nb++;
 		}
 
-
-		//	  BSP_LED_Off(LED1);
-		//	  BSP_LED_Off(LED2);
 	}
 
 
@@ -1096,6 +1088,40 @@ void EWLPoolReleaseCb(u8 **pool_ptr)
 {
 	UNUSED(pool_ptr);
 }
+
+/********************** threadx low power stuff *******************/
+/**
+ * @brief  App_ThreadX_LowPower_Enter
+ * @param  None
+ * @retval None
+ */
+void App_ThreadX_LowPower_Enter(void)
+{
+	/* USER CODE BEGIN  App_ThreadX_LowPower_Enter */
+	//  HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin);
+	BSP_LED_Toggle(LED_RED);
+	/* Enter to the stop mode */
+	HAL_PWR_EnterSTOPMode(PWR_MAINREGULATOR_ON, PWR_STOPENTRY_WFI);
+	/* USER CODE END  App_ThreadX_LowPower_Enter */
+}
+
+/**
+ * @brief  App_ThreadX_LowPower_Exit
+ * @param  None
+ * @retval None
+ */
+void App_ThreadX_LowPower_Exit(void)
+{
+	/* USER CODE BEGIN  App_ThreadX_LowPower_Exit */
+	BSP_LED_On(LED_RED);
+	/* Reconfigure the system clock*/
+	HAL_RCC_DeInit();
+	SystemClock_Config();
+	/* USER CODE END  App_ThreadX_LowPower_Exit */
+}
+
+
+
 
 #ifdef USE_FULL_ASSERT
 

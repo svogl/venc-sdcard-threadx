@@ -655,4 +655,28 @@ extern  CHAR                    _tx_version_id[];
 #endif
 #endif
 
+
+/* Define the LowPower macros and flags */
+#if defined ( __ICCARM__ ) || (defined (__GNUC__) && !defined(__ASSEMBLER__))
+
+/* Define a macro that sets up a low power clock and keep track of time */
+/*#define TX_LOW_POWER_TIMER_SETUP */
+
+/* Define the TX_LOW_POWER_TICKLESS to disable the internal ticks */
+#define TX_LOW_POWER_TICKLESS
+
+/* A user defined macro to make the system enter low power mode */
+void App_ThreadX_LowPower_Enter(void);
+#define TX_LOW_POWER_USER_ENTER App_ThreadX_LowPower_Enter()
+
+/* A user defined macro to make the system exit low power mode */
+void App_ThreadX_LowPower_Exit(void);
+#define TX_LOW_POWER_USER_EXIT App_ThreadX_LowPower_Exit()
+
+/* User's low-power macro to obtain the amount of time (in ticks) the system has been in low power mode */
+/*#define TX_LOW_POWER_USER_TIMER_ADJUST */
+
+#endif
+
+
 #endif

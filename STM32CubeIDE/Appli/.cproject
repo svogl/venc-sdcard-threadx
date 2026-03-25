@@ -62,6 +62,7 @@
 									<listOptionValue builtIn="false" value="../../../Middlewares/ST/STM32_ISP_Library/evision/Inc"/>
 									<listOptionValue builtIn="false" value="../../../Middlewares/ST/threadx/common/inc"/>
 									<listOptionValue builtIn="false" value="../../../Middlewares/ST/threadx/ports/cortex_m55/gnu/inc"/>
+									<listOptionValue builtIn="false" value="../../../Middlewares/ST/threadx/utility/low_power"/>
 									<listOptionValue builtIn="false" value="../../../Middlewares/ST/filex/common/inc"/>
 									<listOptionValue builtIn="false" value="../../../Middlewares/ST/filex/ports/generic/inc"/>
 									<listOptionValue builtIn="false" value="../../../Middlewares/ST/VideoEncoder_EWL"/>
