@@ -250,6 +250,11 @@ UINT VENC_FileX_Init(void) {
 
 ULONG s_msg = DATA_AVAILABLE;
 
+void notify_card_change(){
+	s_msg = CARD_STATUS_CHANGED;
+	tx_queue_send(&tx_msg_queue, &s_msg, TX_NO_WAIT);
+}
+
 void notify_data_available(){
 	s_msg = DATA_AVAILABLE;
 	tx_queue_send(&tx_msg_queue, &s_msg, TX_NO_WAIT);
@@ -384,27 +389,47 @@ void fx_app_thread_func(ULONG /*thread_input*/)
 				break;
 
 			case CARD_STATUS_CHANGED:
-				printf("TDX STAT %08lx\r\n", r_msg);
-				if (state == NO_CARD) {
-					// card inserted...
+				printf("TDX STAT %08lx state %d det %d\r\n", r_msg, state, SD_IsDetected(0));
+				if (SD_IsDetected(0) == HAL_OK) {
+					// card present - mount.
 					ret = state_open_card();
-					printf("TDX STAT copen? %d\r\n", ret);
 					if (ret == FX_SUCCESS) {
-						open_next_file();
+						printf("   card mounted\r\n");
+						state = CARD_INSERTED;
 					} else {
-						// else open failed, disk full,.... stay in state
-						printf("FAILED TO OPEN CARD\r\n");
+						printf("FAILED TO OPEN CARD %d \r\n", ret);
+						BSP_LED_On(LED_RED);
 						state = CARD_ERROR;
 					}
 				} else {
-					// card might have been removed
+					// not present - unmount
 					ret = state_close_sdcard();
 					if (ret == FX_SUCCESS) {
 						; // ok
 					}  // error unmounting? things should be closed anyway
 					state = NO_CARD;
-					BSP_LED_On(LED_RED);
 				}
+
+//				if (state == NO_CARD) {
+//					// card inserted...
+//					ret = state_open_card();
+//					printf("TDX STAT copen? %d\r\n", ret);
+//					if (ret == FX_SUCCESS) {
+//						open_next_file();
+//					} else {
+//						// else open failed, disk full,.... stay in state
+//						printf("FAILED TO OPEN CARD\r\n");
+//						state = CARD_ERROR;
+//					}
+//				} else {
+//					// card might have been removed
+//					ret = state_close_sdcard();
+//					if (ret == FX_SUCCESS) {
+//						; // ok
+//					}  // error unmounting? things should be closed anyway
+//					state = NO_CARD;
+//					BSP_LED_On(LED_RED);
+//				}
 				break;
 			case OPEN_FILE:
 				if (state == NO_CARD) {
@@ -790,7 +815,7 @@ UINT VENC_FileX_close(void)
 /**
  * @brief  Detects if SD card is correctly plugged in the memory slot or not.
  * @param Instance  SD Instance
- * @retval Returns if SD is detected or not
+ * @retval Returns if SD is detected (HAL_OK) or not (HAL_ERROR)
  */
 UINT SD_IsDetected(uint32_t Instance) {
 	UINT ret;

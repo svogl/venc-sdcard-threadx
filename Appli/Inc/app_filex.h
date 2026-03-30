@@ -105,6 +105,8 @@ extern void notify_open();
 // close file
 extern void notify_close();
 
+extern void notify_card_change();
+
 
 //////////////////////////
 //////////////////////////

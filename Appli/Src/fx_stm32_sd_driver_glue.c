@@ -104,7 +104,7 @@ INT fx_stm32_sd_deinit(UINT instance)
     ret = 1;
   }
 #else
-  BSP_SD_DeInit(instance);
+//  BSP_SD_DeInit(instance);
 #endif
 
   /* USER CODE BEGIN POST_FX_SD_DEINIT */

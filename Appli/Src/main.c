@@ -299,7 +299,7 @@ int main(void)
 	}
 #endif
 	BSP_PB_Init(BUTTON_USER1, BUTTON_MODE_EXTI);
-	BSP_PB_Init(BUTTON_TAMP, BUTTON_MODE_GPIO);
+	BSP_PB_Init(BUTTON_TAMP, BUTTON_MODE_EXTI);
 
 	det = SD_IsDetected(0);
 
@@ -338,7 +338,7 @@ void tx_application_define(void *first_unused_memory)
 	if (tx_semaphore_create(&button_semaphore, "button sema", 0) != TX_SUCCESS)
 	{
 		printf("COULD NOT SET UP SEMA!\r\n");
-//		return TX_SEMAPHORE_ERROR;
+		//		return TX_SEMAPHORE_ERROR;
 	}
 
 
@@ -523,8 +523,8 @@ void main_thread_func(ULONG arg){
 							break;
 						}
 
-//						TRACE_MAIN("ENQ writeQ %d - %d i %d s %d states %ld %ld\r\n", frame_nb, ent->fc, ent->idx, ent->size,
-//								myState, state);
+						//						TRACE_MAIN("ENQ writeQ %d - %d i %d s %d states %ld %ld\r\n", frame_nb, ent->fc, ent->idx, ent->size,
+						//								myState, state);
 
 						enq(writeQ, ent);
 						notify_data_available();
@@ -558,10 +558,10 @@ void main_thread_func(ULONG arg){
 		}
 
 		//tx_thread_sleep(1000); // todo replace with irq result
-	    if (tx_semaphore_get(&button_semaphore, TX_WAIT_FOREVER) == TX_SUCCESS)
-	    {
+		if (tx_semaphore_get(&button_semaphore, TX_WAIT_FOREVER) == TX_SUCCESS)
+		{
 
-	    }
+		}
 	}
 
 
@@ -1123,15 +1123,19 @@ static EXTI_HandleTypeDef hpb_exti_sd_det;
 // GPIO E0 .. TAMP button
 void EXTI0_IRQHandler(void) {
 	printf("EXTI0\r\n");
-	EXTI->FPR1 = EXTI->FPR1;
+
 	HAL_EXTI_ClearPending(&hpb_exti_tamp, EXTI_TRIGGER_FALLING);
+
+//	handleInteraction();
+	tx_semaphore_put(&button_semaphore);
 }
 
 // GPIO 11 IRQ handler --> PIR interrupt!
 void EXTI11_IRQHandler(void) {
 
-	EXTI->FPR1 = 0x800; // clear interrupt.
+//	EXTI->FPR1 = 0x800; // clear interrupt.
 	// or use HAL_EXTI_ClearPending(hexti, Edge);
+	HAL_EXTI_ClearPending(&hpb_exti_pir, EXTI_TRIGGER_FALLING);
 
 	int level = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11);
 	printf("EXTI11 PIR is %x\r\n", level);
@@ -1155,17 +1159,31 @@ void EXTI11_IRQHandler(void) {
 	tx_semaphore_put(&button_semaphore);
 }
 
+// some docs on EXTI / GPIO IRQs (not necessarily related to the n6):
+// https://wiki.st.com/stm32mcu/wiki/Getting%20started%20with%20EXTI
+// https://community.st.com/t5/stm32-mcus/how-to-place-and-execute-stm32-code-in-sram-memory-with/ta-p/49528
+
 // GPIO N12 IRQ handler --> SD detect pin
 void EXTI12_IRQHandler(void) {
 	printf("EXTI12 SD Detect\r\n");
-	EXTI->FPR1 = EXTI->FPR1;
-	HAL_EXTI_ClearPending(&hpb_exti_pir, EXTI_TRIGGER_FALLING);
+
+	if (HAL_EXTI_GetPending(&hpb_exti_sd_det, EXTI_TRIGGER_FALLING)) {
+		HAL_EXTI_ClearPending(&hpb_exti_sd_det, EXTI_TRIGGER_FALLING);
+	}
+	if (HAL_EXTI_GetPending(&hpb_exti_sd_det, EXTI_TRIGGER_RISING)) {
+		HAL_EXTI_ClearPending(&hpb_exti_sd_det, EXTI_TRIGGER_RISING);
+	}
+
+	notify_card_change();
 }
 
 // GPIO C13  USER button
 void EXTI13_IRQHandler(void) {
 	printf("EXTI13\r\n");
 	HAL_EXTI_ClearPending(&hpb_exti_user, EXTI_TRIGGER_FALLING);
+
+	tx_semaphore_put(&button_semaphore);
+//	handleInteraction();
 }
 
 
@@ -1194,7 +1212,7 @@ static void init_sensor_pins()
 #define BUTTON_PIR_EXTI_LINE            EXTI_LINE_11
 
 	(void)HAL_EXTI_GetHandle(&hpb_exti_pir, BUTTON_PIR_EXTI_LINE);
-//	(void)HAL_EXTI_RegisterCallback(&hpb_exti_pir,  HAL_EXTI_COMMON_CB_ID, PIR_Sensor_EXTI_Callback);
+	//	(void)HAL_EXTI_RegisterCallback(&hpb_exti_pir,  HAL_EXTI_COMMON_CB_ID, PIR_Sensor_EXTI_Callback);
 
 	const EXTI_ConfigTypeDef extiConfig = {
 			.Line = BUTTON_PIR_EXTI_LINE,
@@ -1208,9 +1226,28 @@ static void init_sensor_pins()
 	HAL_NVIC_SetPriority(BUTTON_PIR_EXTI_IRQn, 15, 0);
 	HAL_NVIC_EnableIRQ(BUTTON_PIR_EXTI_IRQn);
 
-	HAL_EXTI_GetHandle(&hpb_exti_user, EXTI_LINE_12); // SD Detect
-	HAL_EXTI_GetHandle(&hpb_exti_user, EXTI_LINE_13); // USER
-	HAL_EXTI_GetHandle(&hpb_exti_tamp, EXTI_LINE_0); // TAMP
+
+	HAL_EXTI_GetHandle(&hpb_exti_tamp, EXTI_LINE_0);    // TAMP
+	HAL_EXTI_GetHandle(&hpb_exti_sd_det, EXTI_LINE_12); // SD Detect
+	HAL_EXTI_GetHandle(&hpb_exti_user, EXTI_LINE_13);   // USER
+
+
+#define SD_DET_EXTI_IRQn 			EXTI12_IRQn
+#define SD_DET_EXTI_LINE            EXTI_LINE_12
+
+
+	const EXTI_ConfigTypeDef sdExtiConfig = {
+			.Line = SD_DET_EXTI_LINE,
+			.Mode = EXTI_MODE_INTERRUPT,
+			.Trigger = EXTI_TRIGGER_RISING_FALLING,
+			.GPIOSel = EXTI_GPION
+	};
+
+	HAL_EXTI_SetConfigLine(&hpb_exti_sd_det, &sdExtiConfig);
+
+	HAL_NVIC_SetPriority(SD_DET_EXTI_IRQn, 15, 0);
+	HAL_NVIC_EnableIRQ(SD_DET_EXTI_IRQn);
+
 }
 
 
