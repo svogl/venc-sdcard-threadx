@@ -305,6 +305,8 @@ void init_detect_pin()
 
 	// maybe later: set up exti interrupt handler for detect pin;
 	// but typically we assume the card is inserted as long as we're operational
+
+//	HAL_EXTI_ConfigLineAttributes(EXTI_LINE_12, EXTI_LINE_SEC);
 }
 
 void fx_app_thread_func(ULONG /*thread_input*/)
@@ -334,7 +336,7 @@ void fx_app_thread_func(ULONG /*thread_input*/)
 		while (1) {
 			r_msg=0;
 			while (_tx_queue_receive(&tx_msg_queue, &r_msg,
-					TX_TIMER_TICKS_PER_SECOND / 2) != TX_SUCCESS) {
+					TX_TIMER_TICKS_PER_SECOND * 10) != TX_SUCCESS) {
 				/* Toggle GREEN LED to indicate idle state after a successful operation
 				 */
 				//        if (last_status == CARD_STATUS_CONNECTED) {

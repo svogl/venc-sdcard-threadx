@@ -33,6 +33,11 @@
 #include "tx_api.h"
 #include "app_filex.h"
 
+//void SDMMC1_IRQHandler(void)
+//{
+//	while(0) {}
+//}
+
 /** @addtogroup Templates
  * @{
  */
@@ -94,6 +99,13 @@ TX_THREAD main_thread;
 //uint32_t output_buffer[800*600/8];// __NON_CACHEABLE;
 
 static int frame_nb = VIDEO_FRAME_NB+1; // by default, be inactive
+
+// button interface
+static void handleInteraction();
+static void init_sensor_pins();
+
+
+static TX_SEMAPHORE button_semaphore;
 
 //////////////////////////
 //////////////////////////
@@ -234,6 +246,8 @@ int det = 0xface;
 int userBState = 0;
 int tampBState = 0;
 
+int pir_irq_occured = 0;
+
 /**
  * @brief  Main program
  * @param  None
@@ -255,6 +269,9 @@ int main(void)
 	HAL_Init();
 
 	init_detect_pin();
+
+	init_sensor_pins();
+
 
 	det = SD_IsDetected(0);
 
@@ -281,8 +298,7 @@ int main(void)
 		Error_Handler();
 	}
 #endif
-
-	BSP_PB_Init(BUTTON_USER1, BUTTON_MODE_GPIO);
+	BSP_PB_Init(BUTTON_USER1, BUTTON_MODE_EXTI);
 	BSP_PB_Init(BUTTON_TAMP, BUTTON_MODE_GPIO);
 
 	det = SD_IsDetected(0);
@@ -317,10 +333,20 @@ void BSP_PB_Callback (Button_TypeDef Button)
  */
 void tx_application_define(void *first_unused_memory)
 {
+
+	/* Create btn event semaphore.  */
+	if (tx_semaphore_create(&button_semaphore, "button sema", 0) != TX_SUCCESS)
+	{
+		printf("COULD NOT SET UP SEMA!\r\n");
+//		return TX_SEMAPHORE_ERROR;
+	}
+
+
 	void *thread_stack_pointer;
 	tx_byte_pool_create(&byte_pool, "byte pool", tx_main_heap, sizeof(tx_main_heap));
 	tx_byte_allocate(&byte_pool,
 			&thread_stack_pointer, 4000, TX_NO_WAIT);
+
 	(void) tx_thread_create(&main_thread,
 			"main_thread",
 			main_thread_func, 0,
@@ -330,15 +356,13 @@ void tx_application_define(void *first_unused_memory)
 			TX_APP_THREAD_TIME_SLICE,
 			//					  TX_DONT_START);
 			TX_AUTO_START);
-}
 
-TX_SEMAPHORE write_q_semaphore;
-static void* q_ptr = NULL;
+
+}
 
 /// state handling - check inputs, trigger recording
 static int32_t then = 0;
 static int32_t thenD = 0;
-static void handleInteraction();
 
 static FxThreadState myState = NO_CARD;
 
@@ -509,6 +533,12 @@ void main_thread_func(ULONG arg){
 					//				  printf("c %lu\r\n", cam_frame_counter );
 				}
 
+				// if we're near the end of recording and we had some activity, continue to record
+				if (frame_nb > VIDEO_FRAME_NB - 10 && pir_irq_occured > 0) {
+					printf("main() detected %d PIR events; continuing...\r\n", pir_irq_occured);
+					pir_irq_occured = 0;
+					frame_nb = 1;
+				}
 				handleInteraction();
 			} else {
 				tx_thread_sleep(1);
@@ -527,6 +557,11 @@ void main_thread_func(ULONG arg){
 			frame_nb++;
 		}
 
+		//tx_thread_sleep(1000); // todo replace with irq result
+	    if (tx_semaphore_get(&button_semaphore, TX_WAIT_FOREVER) == TX_SUCCESS)
+	    {
+
+	    }
 	}
 
 
@@ -543,9 +578,10 @@ static void handleInteraction()
 		int bUser = BSP_PB_GetState(BUTTON_USER1);
 		int bTamp = BSP_PB_GetState(BUTTON_TAMP);
 		int sd = BSP_SD_IsDetected(0);
+		int pir = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11);
 
 		if (now - thenD > 1000) { // every something, report
-			printf("c %lu bu %d bt %d sd %d S: %d %d\r\n", cam_frame_counter , bUser, bTamp , sd,
+			printf("c %lu bu %d bt %d pir %d sd %d S: %d %d\r\n", cam_frame_counter , bUser, bTamp , pir, sd,
 					state, myState);
 			thenD = now;
 		}
@@ -568,8 +604,8 @@ static void handleInteraction()
 
 				frame_nb = 0;
 				state = FILE_OPENED;
-
 			}
+			tx_semaphore_put(&button_semaphore);
 		}
 
 		// simulate eject / mount request
@@ -1077,6 +1113,106 @@ static void MPU_Config(void)
 	/* Exit critical section to lock the system and avoid any issue around MPU mechanisme */
 	__set_PRIMASK(primask_bit);
 }
+
+
+static EXTI_HandleTypeDef hpb_exti_user;
+static EXTI_HandleTypeDef hpb_exti_tamp;
+static EXTI_HandleTypeDef hpb_exti_pir;
+static EXTI_HandleTypeDef hpb_exti_sd_det;
+
+// GPIO E0 .. TAMP button
+void EXTI0_IRQHandler(void) {
+	printf("EXTI0\r\n");
+	EXTI->FPR1 = EXTI->FPR1;
+	HAL_EXTI_ClearPending(&hpb_exti_tamp, EXTI_TRIGGER_FALLING);
+}
+
+// GPIO 11 IRQ handler --> PIR interrupt!
+void EXTI11_IRQHandler(void) {
+
+	EXTI->FPR1 = 0x800; // clear interrupt.
+	// or use HAL_EXTI_ClearPending(hexti, Edge);
+
+	int level = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11);
+	printf("EXTI11 PIR is %x\r\n", level);
+
+	pir_irq_occured++;
+
+	if (myState == FILE_OPENED) {
+		printf("CAPTURING, but reseting frame counter from %d!\r\n", frame_nb);
+		frame_nb=0;
+	} else {
+		printf("IDLE, starting up!\r\n");
+		notify_open();
+
+		// allow some time for file to open
+		tx_thread_sleep(50);
+
+		frame_nb = 0;
+		state = FILE_OPENED;
+	}
+
+	tx_semaphore_put(&button_semaphore);
+}
+
+// GPIO N12 IRQ handler --> SD detect pin
+void EXTI12_IRQHandler(void) {
+	printf("EXTI12 SD Detect\r\n");
+	EXTI->FPR1 = EXTI->FPR1;
+	HAL_EXTI_ClearPending(&hpb_exti_pir, EXTI_TRIGGER_FALLING);
+}
+
+// GPIO C13  USER button
+void EXTI13_IRQHandler(void) {
+	printf("EXTI13\r\n");
+	HAL_EXTI_ClearPending(&hpb_exti_user, EXTI_TRIGGER_FALLING);
+}
+
+
+static void init_sensor_pins()
+{
+	GPIO_InitTypeDef gpio_init_structure;
+
+	__HAL_RCC_GPIOC_CLK_ENABLE();
+
+	// PIR sensor on PC11
+
+	/* Configure Interrupt mode for SD detection pin PN12 */
+	gpio_init_structure.Pin     = GPIO_PIN_11;
+	gpio_init_structure.Pull    = GPIO_NOPULL;
+	gpio_init_structure.Speed   = GPIO_SPEED_FREQ_LOW;
+	gpio_init_structure.Mode    = GPIO_MODE_INPUT;
+
+	HAL_GPIO_Init(GPIOC, &gpio_init_structure);
+
+
+	/* PIR EXTI interrupt init*/
+
+	/* EXTI interrupt init; only one pin per exti line supported! */
+
+#define BUTTON_PIR_EXTI_IRQn 			EXTI11_IRQn
+#define BUTTON_PIR_EXTI_LINE            EXTI_LINE_11
+
+	(void)HAL_EXTI_GetHandle(&hpb_exti_pir, BUTTON_PIR_EXTI_LINE);
+//	(void)HAL_EXTI_RegisterCallback(&hpb_exti_pir,  HAL_EXTI_COMMON_CB_ID, PIR_Sensor_EXTI_Callback);
+
+	const EXTI_ConfigTypeDef extiConfig = {
+			.Line = BUTTON_PIR_EXTI_LINE,
+			.Mode = EXTI_MODE_INTERRUPT,
+			.Trigger = EXTI_TRIGGER_FALLING,
+			.GPIOSel = EXTI_GPIOC
+	};
+
+	HAL_EXTI_SetConfigLine(&hpb_exti_pir, &extiConfig);
+
+	HAL_NVIC_SetPriority(BUTTON_PIR_EXTI_IRQn, 15, 0);
+	HAL_NVIC_EnableIRQ(BUTTON_PIR_EXTI_IRQn);
+
+	HAL_EXTI_GetHandle(&hpb_exti_user, EXTI_LINE_12); // SD Detect
+	HAL_EXTI_GetHandle(&hpb_exti_user, EXTI_LINE_13); // USER
+	HAL_EXTI_GetHandle(&hpb_exti_tamp, EXTI_LINE_0); // TAMP
+}
+
 
 void EWLPoolChoiceCb(u8 **pool_ptr, size_t *size)
 {
