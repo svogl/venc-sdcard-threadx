@@ -187,6 +187,16 @@
 			<locationURI>PARENT-2-PROJECT_LOC/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_rif.c</locationURI>
 		</link>
 		<link>
+			<name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_hal_rtc.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_rtc.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_hal_rtc_ex.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_rtc_ex.c</locationURI>
+		</link>
+		<link>
 			<name>Drivers/STM32N6xx_HAL_Driver/stm32n6xx_hal_sd.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Drivers/STM32N6xx_HAL_Driver/Src/stm32n6xx_hal_sd.c</locationURI>
@@ -2389,7 +2399,7 @@
 		<link>
 			<name>Middlewares/ThreadX/low_power/tx_low_power.c</name>
 			<type>1</type>
-			<location>PARENT-2-PROJECT_LOC/Middlewares/ST/threadx/utility/low_power/tx_low_power.c</location>
+			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/ST/threadx/utility/low_power/tx_low_power.c</locationURI>
 		</link>
 		<link>
 			<name>Middlewares/ThreadX/port/tx_misra.S</name>

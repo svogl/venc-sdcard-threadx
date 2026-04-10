@@ -196,6 +196,26 @@ int enq(struct qentry* queue, struct qentry* ent)
 //////////////////////////
 //////////////////////////
 
+//////////////////////////
+////////////////////////// RTC
+
+
+RTC_HandleTypeDef hrtc;
+static void MX_RTC_Init(void); /// init rtc hw
+
+static void RTC_CalendarShow(void); ///
+static void RTC_InitTime(void); /// set a fixed date/time
+
+// RTC status:
+uint8_t aShowTime[16] = "hh:mm:ss";
+uint8_t aShowTimeStamp[16] = "hh:mm:ss";
+uint8_t aShowDate[16] = "mm-dd-yyyy";
+uint8_t aShowDateStamp[16] = "mm-dd-yyyy";
+__IO uint8_t  RTCStatus = 0;
+
+////////////////////////// /RTC
+//////////////////////////
+
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
@@ -271,6 +291,12 @@ int main(void)
 	init_detect_pin();
 
 	init_sensor_pins();
+
+	// rtc:
+	MX_RTC_Init();
+	RTC_CalendarShow();
+	RTC_InitTime();
+	RTC_CalendarShow();
 
 
 	det = SD_IsDetected(0);
@@ -1068,6 +1094,195 @@ HAL_StatusTypeDef MX_LTDC_ClockConfig(LTDC_HandleTypeDef *hltdc)
 
 	return status;
 }
+
+/****************** RTC ****************************/
+
+/**
+  * @brief RTC MSP Initialization
+  * This function configures the hardware resources used in this example
+  * @param hrtc: RTC handle pointer
+  * @retval None
+  */
+void HAL_RTC_MspInit(RTC_HandleTypeDef* hrtc)
+{
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+  if(hrtc->Instance==RTC)
+  {
+    /* USER CODE BEGIN RTC_MspInit 0 */
+
+    /* USER CODE END RTC_MspInit 0 */
+
+  /** Initializes the peripherals clock
+  */
+    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RTC;
+    PeriphClkInitStruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+    {
+      Error_Handler();
+    }
+
+    /* Peripheral clock enable */
+    __HAL_RCC_RTCAPB_CLK_ENABLE();
+    __HAL_RCC_RTC_CLK_ENABLE();
+    /* USER CODE BEGIN RTC_MspInit 1 */
+
+    /* USER CODE END RTC_MspInit 1 */
+
+  }
+
+}
+
+/**
+  * @brief RTC MSP De-Initialization
+  * This function freeze the hardware resources used in this example
+  * @param hrtc: RTC handle pointer
+  * @retval None
+  */
+void HAL_RTC_MspDeInit(RTC_HandleTypeDef* hrtc)
+{
+  if(hrtc->Instance==RTC)
+  {
+    /* USER CODE BEGIN RTC_MspDeInit 0 */
+
+    /* USER CODE END RTC_MspDeInit 0 */
+    /* Peripheral clock disable */
+    __HAL_RCC_RTCAPB_CLK_DISABLE();
+    __HAL_RCC_RTC_CLK_DISABLE();
+    /* USER CODE BEGIN RTC_MspDeInit 1 */
+
+    /* USER CODE END RTC_MspDeInit 1 */
+  }
+
+}
+
+
+/**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_PrivilegeStateTypeDef privilegeState = {0};
+  RTC_SecureStateTypeDef secureState = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  hrtc.Init.OutPutPullUp = RTC_OUTPUT_PULLUP_NONE;
+  hrtc.Init.BinMode = RTC_BINARY_NONE;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  privilegeState.rtcPrivilegeFull = RTC_PRIVILEGE_FULL_NO;
+  privilegeState.backupRegisterPrivZone = RTC_PRIVILEGE_BKUP_ZONE_NONE;
+  privilegeState.backupRegisterStartZone2 = RTC_BKP_DR0;
+  privilegeState.backupRegisterStartZone3 = RTC_BKP_DR0;
+  if (HAL_RTCEx_PrivilegeModeSet(&hrtc, &privilegeState) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  secureState.rtcSecureFull = RTC_SECURE_FULL_YES;
+  secureState.backupRegisterStartZone2 = RTC_BKP_DR0;
+  secureState.backupRegisterStartZone3 = RTC_BKP_DR0;
+  if (HAL_RTCEx_SecureModeSet(&hrtc, &secureState) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
+
+}
+
+static void RTC_InitTime(void)
+{
+	RTC_TimeTypeDef sTime = {0};
+	RTC_DateTypeDef sDate = {0};
+
+	sTime.Hours = 0x13;
+	sTime.Minutes = 0x32;
+	sTime.Seconds = 0x0;
+	sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+	sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+	if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+	{
+		Error_Handler();
+	}
+
+	sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+	sDate.Month = RTC_MONTH_JUNE;
+	sDate.Date = 0x04;
+	sDate.Year = 0x26;
+	if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+	{
+		Error_Handler();
+	}
+
+}
+
+/**
+ * @brief  Display the current time and date.
+ *   showtime : pointer to buffer
+ *   showdate : pointer to buffer
+ * @retval None
+ */
+static void RTC_CalendarShow(void)
+{
+	RTC_DateTypeDef sdatestructureget;
+	RTC_TimeTypeDef stimestructureget;
+	/* Get the RTC current Time */
+	HAL_RTC_GetTime(&hrtc, &stimestructureget, RTC_FORMAT_BIN);
+	/* Get the RTC current Date */
+	HAL_RTC_GetDate(&hrtc, &sdatestructureget, RTC_FORMAT_BIN);
+
+	/* Display time Format : hh:mm:ss */
+	sprintf((char *)aShowTime, "%.2d:%.2d:%.2d", stimestructureget.Hours, stimestructureget.Minutes, stimestructureget.Seconds);
+	printf("%s \r\n",aShowTime);
+
+	/* Display date Format : mm-dd-yy */
+	sprintf((char *)aShowDate, "%.2d-%.2d-%.2d", sdatestructureget.Month, sdatestructureget.Date, 2000 + sdatestructureget.Year);
+	printf("%s \r\n",aShowDate);
+}
+
+static void RTC_PrintTimestamp(char *buf, int size)
+{
+	RTC_DateTypeDef sdatestructureget;
+	RTC_TimeTypeDef stimestructureget;
+	/* Get the RTC current Time */
+	HAL_RTC_GetTime(&hrtc, &stimestructureget, RTC_FORMAT_BIN);
+	/* Get the RTC current Date */
+	HAL_RTC_GetDate(&hrtc, &sdatestructureget, RTC_FORMAT_BIN);
+
+	/* Display time Format : hh:mm:ss */
+	snprintf(buf, size, "%04d%02d%02d-%02d%02d%02d",
+			2000 + sdatestructureget.Year, sdatestructureget.Month, sdatestructureget.Date,
+			stimestructureget.Hours, stimestructureget.Minutes, stimestructureget.Seconds);
+	printf("TS [%s]\r\n",buf);
+}
+
+/****************** /RTC ***************************/
+
+
+
+
 
 void Error_Handler(void)
 {

@@ -12,6 +12,9 @@
 #include "fx_stm32_sd_driver.h"
 #include "main.h"
 #include "stm32n6570_discovery_sd.h"
+#include "stm32n6xx_hal_rtc.h"
+
+extern RTC_HandleTypeDef hrtc;
 
 TX_SEMAPHORE sd_tx_semaphore;
 TX_SEMAPHORE sd_rx_semaphore;
@@ -395,6 +398,28 @@ void HAL_SD_DriveTransceiver_1_8V_Callback(FlagStatus status)
 
 #endif
 
+#define DWORD uint32_t
+#define WORD uint16_t
+
+// thanks to DBaya.1 @ https://community.st.com/t5/stm32-mcus-products/showing-date-and-time-of-file-creation-in-sd-card/td-p/240415
+DWORD get_fattime(void)
+{
+	/* USER CODE BEGIN get_fattime */
+
+	RTC_TimeTypeDef sZeit;
+	RTC_DateTypeDef sDatum;
+	DWORD attime;
+	HAL_RTC_GetTime(&hrtc, &sZeit, RTC_FORMAT_BIN);
+	HAL_RTC_GetDate(&hrtc, &sDatum, RTC_FORMAT_BIN);
+	attime = (((DWORD)sDatum.Year - 1980) << 25)
+		| ((DWORD)sDatum.Month << 21)
+		| ((DWORD)sDatum.Date << 16)
+		| (WORD)(sZeit.Hours << 11)
+		| (WORD)(sZeit.Minutes << 5)
+		| (WORD)(sZeit.Seconds >> 1);
+	return attime;
+	/* USER CODE END get_fattime */
+}
 
 
 
