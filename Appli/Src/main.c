@@ -203,6 +203,7 @@ int enq(struct qentry* queue, struct qentry* ent)
 RTC_HandleTypeDef hrtc;
 static void MX_RTC_Init(void); /// init rtc hw
 
+static int RTC_IsInitialized(void); ///
 static void RTC_CalendarShow(void); ///
 static void RTC_InitTime(void); /// set a fixed date/time
 
@@ -211,6 +212,7 @@ uint8_t aShowTime[16] = "hh:mm:ss";
 uint8_t aShowTimeStamp[16] = "hh:mm:ss";
 uint8_t aShowDate[16] = "mm-dd-yyyy";
 uint8_t aShowDateStamp[16] = "mm-dd-yyyy";
+uint8_t fileTimeStamp[32] = "yyyymmdd-hhmmss";
 __IO uint8_t  RTCStatus = 0;
 
 ////////////////////////// /RTC
@@ -292,13 +294,6 @@ int main(void)
 
 	init_sensor_pins();
 
-	// rtc:
-	MX_RTC_Init();
-	RTC_CalendarShow();
-	RTC_InitTime();
-	RTC_CalendarShow();
-
-
 	det = SD_IsDetected(0);
 
 	/* oscillator and PLL already configured. Configure periph clocks */
@@ -328,6 +323,15 @@ int main(void)
 	BSP_PB_Init(BUTTON_TAMP, BUTTON_MODE_EXTI);
 
 	det = SD_IsDetected(0);
+
+	// rtc:
+	MX_RTC_Init();
+	RTC_CalendarShow();
+
+	if (!RTC_IsInitialized()) {
+		RTC_InitTime();
+	}
+	RTC_CalendarShow();
 
 
 	printf("---------------- BOOT %d\r\n",det);
@@ -968,6 +972,13 @@ static void SystemClock_Config(void)
 		}
 	}
 
+	/** Configure LSE Drive Capability
+	 */
+	HAL_PWR_EnableBkUpAccess();
+	__HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_MEDIUMHIGH);
+
+
+
 	/* HSI selected as PLL1 source                             */
 	/* PLL1 output = ((HSI/PLLM)*PLLN)/PLLP1/PLLP2             */
 	/*             = ((64000000/8)*100)/1/1                    */
@@ -976,8 +987,9 @@ static void SystemClock_Config(void)
 	/* PLL2 output = HSI (64 MHz)                              */
 	/* PLL3 output = HSI (64 MHz)                              */
 	/* PLL4 output = HSI (64 MHz)                              */
-	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSE;
 	RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+	RCC_OscInitStruct.LSEState = RCC_LSE_ON;
 	RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV1;
 	RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
 	RCC_OscInitStruct.PLL1.PLLState = RCC_PLL_ON;
@@ -1217,8 +1229,8 @@ static void RTC_InitTime(void)
 	RTC_TimeTypeDef sTime = {0};
 	RTC_DateTypeDef sDate = {0};
 
-	sTime.Hours = 0x13;
-	sTime.Minutes = 0x32;
+	sTime.Hours = 0x11;
+	sTime.Minutes = 0x58;
 	sTime.Seconds = 0x0;
 	sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
 	sTime.StoreOperation = RTC_STOREOPERATION_RESET;
@@ -1228,8 +1240,8 @@ static void RTC_InitTime(void)
 	}
 
 	sDate.WeekDay = RTC_WEEKDAY_MONDAY;
-	sDate.Month = RTC_MONTH_JUNE;
-	sDate.Date = 0x04;
+	sDate.Month = RTC_MONTH_APRIL;
+	sDate.Date = 0x12;
 	sDate.Year = 0x26;
 	if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
 	{
@@ -1262,7 +1274,7 @@ static void RTC_CalendarShow(void)
 	printf("%s \r\n",aShowDate);
 }
 
-static void RTC_PrintTimestamp(char *buf, int size)
+void RTC_PrintTimestamp(char *buf, int size)
 {
 	RTC_DateTypeDef sdatestructureget;
 	RTC_TimeTypeDef stimestructureget;
@@ -1276,6 +1288,32 @@ static void RTC_PrintTimestamp(char *buf, int size)
 			2000 + sdatestructureget.Year, sdatestructureget.Month, sdatestructureget.Date,
 			stimestructureget.Hours, stimestructureget.Minutes, stimestructureget.Seconds);
 	printf("TS [%s]\r\n",buf);
+}
+
+void RTC_SetFileXTime()
+{
+	RTC_DateTypeDef sdatestructureget;
+	RTC_TimeTypeDef stimestructureget;
+	/* Get the RTC current Time */
+	HAL_RTC_GetTime(&hrtc, &stimestructureget, RTC_FORMAT_BIN);
+	/* Get the RTC current Date */
+	HAL_RTC_GetDate(&hrtc, &sdatestructureget, RTC_FORMAT_BIN);
+
+	_fxe_system_date_set(2000 + sdatestructureget.Year, sdatestructureget.Month, sdatestructureget.Date);
+	_fxe_system_time_set(stimestructureget.Hours, stimestructureget.Minutes, stimestructureget.Seconds);
+
+	snprintf(fileTimeStamp, sizeof(fileTimeStamp), "%04d%02d%02d-%02d%02d%02d",
+			2000 + sdatestructureget.Year, sdatestructureget.Month, sdatestructureget.Date,
+			stimestructureget.Hours, stimestructureget.Minutes, stimestructureget.Seconds);
+
+}
+
+static int RTC_IsInitialized(void)
+{
+	RTC_DateTypeDef sdatestructureget;
+	HAL_RTC_GetDate(&hrtc, &sdatestructureget, RTC_FORMAT_BIN);
+
+	return (sdatestructureget.Year > 0);
 }
 
 /****************** /RTC ***************************/

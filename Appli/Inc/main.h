@@ -50,4 +50,8 @@ uint32_t CheckResult(void);
 void     StartTest(void);
 uint8_t CheckForUserInput(void);
 
+
+void RTC_SetFileXTime();
+void RTC_PrintTimestamp(char *buf, int size);
+
 #endif /* MAIN_H */

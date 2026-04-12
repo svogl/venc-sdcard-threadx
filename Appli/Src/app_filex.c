@@ -499,11 +499,18 @@ static int count_files()
 
 static int open_next_file()
 {
+	char tstamp[32];
 	char fname[64];
 	int ret = FX_SUCCESS;
 
+	RTC_SetFileXTime();
+
+	RTC_PrintTimestamp(tstamp,sizeof(tstamp));
+
+	extern char* fileTimeStamp;
+
 	// get next filename
-	snprintf(fname, sizeof(fname), "vid-%03d.mp4", file_index++);
+	snprintf(fname, sizeof(fname), "vid-%03d-%s.mp4", file_index++, tstamp);
 
 	ret = state_open_file(fname);
 	if (ret == FX_SUCCESS) {
